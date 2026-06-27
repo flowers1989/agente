@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { ThemeInitializer } from "@/components/agente/theme-initializer";
 
@@ -16,10 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agente IA Autónomo · OpenCode Go",
-  description: "Agente de IA autónomo configurable con OpenCode Go. 13 modelos, 56 herramientas, ejecución paso a paso.",
-  keywords: ["IA", "Agente", "OpenCode Go", "Autónomo", "Coding", "Manus AI"],
-  authors: [{ name: "Agente IA" }],
+  title: "Agente · IA que hace por ti",
+  description: "Describe lo que necesitas y el agente lo ejecuta por ti en tiempo real.",
+  keywords: ["IA", "Agente", "Autónomo", "Manus", "Coding"],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
@@ -37,8 +35,17 @@ export default function RootLayout({
       >
         <ThemeInitializer />
         {children}
-        <Toaster />
-        <SonnerToaster richColors position="top-right" />
+        <SonnerToaster
+          position="top-center"
+          toastOptions={{
+            style: {
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              color: "var(--foreground)",
+              fontSize: "13px",
+            },
+          }}
+        />
       </body>
     </html>
   );

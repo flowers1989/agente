@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useAppStore } from "@/lib/store";
+import { useAppStore } from "@/lib/store-app";
 
 export function ThemeInitializer() {
   const theme = useAppStore((s) => s.theme);
@@ -11,21 +11,17 @@ export function ThemeInitializer() {
   const route = useAppStore((s) => s.route);
   const navigate = useAppStore((s) => s.navigate);
 
-  // Apply theme
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.documentElement.classList.toggle("dark", theme === "dark");
+      document.documentElement.classList.toggle("light", theme === "light");
     }
   }, [theme]);
 
-  // On first mount, if the user is already onboarded/authenticated, send them to dashboard
-  // instead of landing. Only do this once on initial mount when route is "landing".
   useEffect(() => {
     const isAuth = isAuthenticated || !!user || onboarded;
     if (isAuth && route === "landing") {
-      navigate("dashboard");
+      navigate("app");
     }
   }, []);
-
-  return null;
 }

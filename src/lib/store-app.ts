@@ -6,65 +6,47 @@ import type {
   User,
   APIConfig,
   ModelParameters,
-  Task,
+  UserPreferences,
   Route,
-  Execution,
-  LogEntry,
 } from "./types";
-import { SAMPLE_TASKS, SAMPLE_EXECUTION, OPENCODE_MODELS } from "./mock-data";
+import { AI_MODELS } from "./mock-data";
+
+// ==================== APP STORE ====================
+// Maneja: auth, config, theme, routing, sidebar
 
 interface AppState {
   // Auth
   user: User | null;
   isAuthenticated: boolean;
+  onboarded: boolean;
 
   // Config
   apiConfig: APIConfig | null;
   modelParameters: ModelParameters;
-  onboarded: boolean;
-
-  // Tasks
-  tasks: Task[];
-  currentTaskId: string | null;
-  execution: Execution | null;
-  logs: LogEntry[];
+  preferences: UserPreferences;
 
   // UI
-  theme: "light" | "dark";
-  sidebarCollapsed: boolean;
+  theme: "dark" | "light";
   route: Route;
   routeParams: Record<string, string>;
+  sidebarCollapsed: boolean;
 
-  // Actions - Auth
+  // Actions: Auth
   login: (email: string, name: string) => void;
   logout: () => void;
-  register: (email: string, name: string, password: string) => void;
+  register: (email: string, name: string) => void;
 
-  // Actions - Config
+  // Actions: Config
   setAPIKey: (key: string) => void;
   setSelectedModel: (modelId: string) => void;
   testConnection: () => Promise<{ success: boolean; message: string }>;
   setModelParameters: (params: Partial<ModelParameters>) => void;
+  setPreferences: (prefs: Partial<UserPreferences>) => void;
   completeOnboarding: () => void;
 
-  // Actions - Tasks
-  addTask: (task: Omit<Task, "id" | "userId" | "createdAt" | "status">) => string;
-  deleteTask: (id: string) => void;
-  setCurrentTask: (id: string) => void;
-  updateTask: (id: string, updates: Partial<Task>) => void;
-
-  // Actions - Execution
-  setExecution: (execution: Execution) => void;
-  startExecution: (taskId: string) => void;
-  addLog: (log: LogEntry) => void;
-  clearLogs: () => void;
-  pauseExecution: () => void;
-  cancelExecution: () => void;
-  retryStep: () => void;
-
-  // Actions - UI
+  // Actions: UI
   toggleTheme: () => void;
-  setTheme: (theme: "light" | "dark") => void;
+  setTheme: (theme: "dark" | "light") => void;
   toggleSidebar: () => void;
   navigate: (route: Route, params?: Record<string, string>) => void;
 }
@@ -78,23 +60,26 @@ const DEFAULT_PARAMETERS: ModelParameters = {
   stopSequences: [],
 };
 
+const DEFAULT_PREFERENCES: UserPreferences = {
+  theme: "dark",
+  notifications: true,
+  autoSaveTasks: true,
+};
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
-      // Initial state
+      // Initial
       user: null,
       isAuthenticated: false,
+      onboarded: false,
       apiConfig: null,
       modelParameters: DEFAULT_PARAMETERS,
-      onboarded: false,
-      tasks: SAMPLE_TASKS,
-      currentTaskId: null,
-      execution: null,
-      logs: [],
+      preferences: DEFAULT_PREFERENCES,
       theme: "dark",
-      sidebarCollapsed: false,
       route: "landing",
       routeParams: {},
+      sidebarCollapsed: false,
 
       // Auth
       login: (email, name) => {
@@ -103,10 +88,11 @@ export const useAppStore = create<AppState>()(
           email,
           name: name || email.split("@")[0],
           createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
         set({ user, isAuthenticated: true });
         if (get().onboarded) {
-          set({ route: "dashboard" });
+          set({ route: "app" });
         } else {
           set({ route: "onboarding" });
         }
@@ -117,9 +103,6 @@ export const useAppStore = create<AppState>()(
           user: null,
           isAuthenticated: false,
           route: "landing",
-          execution: null,
-          logs: [],
-          currentTaskId: null,
         });
       },
 
@@ -163,7 +146,6 @@ export const useAppStore = create<AppState>()(
         if (!config || !config.apiKey) {
           return { success: false, message: "No hay API key configurada" };
         }
-        // Simulación de validación
         await new Promise((r) => setTimeout(r, 1500));
         if (config.apiKey.length < 10) {
           set({
@@ -186,7 +168,7 @@ export const useAppStore = create<AppState>()(
         });
         return {
           success: true,
-          message: `Conexión exitosa. ${OPENCODE_MODELS.length} modelos disponibles.`,
+          message: `Conexión exitosa. ${AI_MODELS.length} modelos disponibles.`,
         };
       },
 
@@ -194,145 +176,38 @@ export const useAppStore = create<AppState>()(
         set({ modelParameters: { ...get().modelParameters, ...params } });
       },
 
+      setPreferences: (prefs) => {
+        set({ preferences: { ...get().preferences, ...prefs } });
+      },
+
       completeOnboarding: () => {
-        set({ onboarded: true, route: "dashboard" });
-      },
-
-      // Tasks
-      addTask: (task) => {
-        const id = `task-${Date.now()}`;
-        const newTask: Task = {
-          ...task,
-          id,
-          userId: get().user?.id || "user-1",
-          createdAt: new Date().toISOString(),
-          status: "pending",
-        };
-        set({ tasks: [newTask, ...get().tasks] });
-        return id;
-      },
-
-      deleteTask: (id) => {
-        set({ tasks: get().tasks.filter((t) => t.id !== id) });
-      },
-
-      setCurrentTask: (id) => {
-        set({ currentTaskId: id });
-      },
-
-      updateTask: (id, updates) => {
-        set({
-          tasks: get().tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)),
-        });
-      },
-
-      // Execution
-      setExecution: (execution) => set({ execution }),
-
-      startExecution: (taskId) => {
-        const task = get().tasks.find((t) => t.id === taskId);
-        if (!task) return;
-        // Crear ejecución simulada basada en SAMPLE_EXECUTION pero con la task actual
-        const exec: Execution = {
-          ...SAMPLE_EXECUTION,
-          id: `exec-${Date.now()}`,
-          taskId,
-          currentStepIndex: 0,
-          status: "running",
-          startedAt: new Date().toISOString(),
-          tokensUsed: 0,
-          actualCost: 0,
-          logs: [],
-          variables: {},
-          memory: [],
-          errors: [],
-          plan: {
-            ...SAMPLE_EXECUTION.plan,
-            steps: SAMPLE_EXECUTION.plan.steps.map((s) => ({
-              ...s,
-              status: "pending" as const,
-              logs: [],
-              startedAt: undefined,
-              completedAt: undefined,
-              result: undefined,
-            })),
-          },
-        };
-        set({ execution: exec, currentTaskId: taskId, logs: [], route: "task-execution" });
-      },
-
-      addLog: (log) => set({ logs: [...get().logs, log] }),
-
-      clearLogs: () => set({ logs: [] }),
-
-      pauseExecution: () => {
-        const exec = get().execution;
-        if (exec) {
-          set({ execution: { ...exec, status: "paused" } });
-        }
-      },
-
-      cancelExecution: () => {
-        const exec = get().execution;
-        if (exec) {
-          set({ execution: { ...exec, status: "cancelled" } });
-        }
-      },
-
-      retryStep: () => {
-        const exec = get().execution;
-        if (exec) {
-          set({
-            execution: {
-              ...exec,
-              status: "running",
-              plan: {
-                ...exec.plan,
-                steps: exec.plan.steps.map((s, i) =>
-                  i === exec.currentStepIndex
-                    ? { ...s, status: "running", error: undefined }
-                    : s
-                ),
-              },
-            },
-          });
-        }
+        set({ onboarded: true, route: "app" });
       },
 
       // UI
       toggleTheme: () => {
         const next = get().theme === "dark" ? "light" : "dark";
-        set({ theme: next });
+        set({ theme: next, preferences: { ...get().preferences, theme: next } });
         if (typeof document !== "undefined") {
           document.documentElement.classList.toggle("dark", next === "dark");
+          document.documentElement.classList.toggle("light", next === "light");
         }
       },
 
       setTheme: (theme) => {
-        set({ theme });
+        set({ theme, preferences: { ...get().preferences, theme } });
         if (typeof document !== "undefined") {
           document.documentElement.classList.toggle("dark", theme === "dark");
+          document.documentElement.classList.toggle("light", theme === "light");
         }
       },
 
       toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
 
       navigate: (route, params = {}) => {
-        // Si requiere auth y no está logueado, ir a landing.
-        // Consideramos "autenticado" si hay user O si ya completó onboarding
-        // (mayor robustez ante reloads que pierden user pero mantienen onboarded)
         const isAuth = get().isAuthenticated || !!get().user || get().onboarded;
         const protectedRoutes: Route[] = [
-          "dashboard",
-          "tasks",
-          "task-execution",
-          "task-result",
-          "history",
-          "reports",
-          "settings",
-          "documentation",
-          "tools",
-          "onboarding",
+          "app", "dashboard", "history", "reports", "settings", "documentation", "onboarding",
         ];
         if (protectedRoutes.includes(route) && !isAuth) {
           set({ route: "login", routeParams: {} });
@@ -345,17 +220,17 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
-      name: "agente-ia-storage",
+      name: "agente-ia-storage-v2",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
         apiConfig: state.apiConfig,
         modelParameters: state.modelParameters,
+        preferences: state.preferences,
         onboarded: state.onboarded,
         theme: state.theme,
         sidebarCollapsed: state.sidebarCollapsed,
-        tasks: state.tasks,
       }),
     }
   )

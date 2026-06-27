@@ -6,51 +6,37 @@ import { cn } from "@/lib/utils";
 interface LogoProps {
   size?: number;
   className?: string;
-  animated?: boolean;
+  withText?: boolean;
 }
 
-export function Logo({ size = 32, className, animated = false }: LogoProps) {
+// Logo minimalista tipo Manus - solo un cuadrado con un punto
+export function Logo({ size = 28, className, withText = false }: LogoProps) {
   return (
-    <div
-      className={cn("relative inline-flex items-center justify-center", className)}
+    <div className={cn("inline-flex items-center gap-2", className)}>
+      <LogoMark size={size} />
+      {withText && <span className="font-semibold tracking-tight text-base">Agente</span>}
+    </div>
+  );
+}
+
+export function LogoMark({ size = 28, animated = false }: { size?: number; animated?: boolean }) {
+  return (
+    <motion.div
+      className="relative inline-flex items-center justify-center rounded-md bg-foreground"
       style={{ width: size, height: size }}
+      animate={animated ? { scale: [1, 1.05, 1] } : {}}
+      transition={animated ? { duration: 2, repeat: Infinity } : {}}
     >
-      <svg
-        viewBox="0 0 40 40"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        className="w-full h-full"
-      >
-        <defs>
-          <linearGradient id="logo-grad" x1="0" y1="0" x2="40" y2="40">
-            <stop offset="0%" stopColor="oklch(0.72 0.17 165)" />
-            <stop offset="100%" stopColor="oklch(0.78 0.17 70)" />
-          </linearGradient>
-        </defs>
-        <rect width="40" height="40" rx="10" fill="url(#logo-grad)" />
+      <svg viewBox="0 0 24 24" fill="none" className="w-2/3 h-2/3">
         <path
-          d="M12 14L20 10L28 14V22C28 26 24.5 29 20 30.5C15.5 29 12 26 12 22V14Z"
-          stroke="white"
-          strokeWidth="2"
+          d="M12 2L2 7v10l10 5 10-5V7L12 2z"
+          stroke="var(--background)"
+          strokeWidth="1.8"
           strokeLinejoin="round"
           fill="none"
         />
-        <circle cx="20" cy="20" r="3" fill="white" />
-        {animated && (
-          <motion.circle
-            cx="20"
-            cy="20"
-            r="3"
-            fill="none"
-            stroke="white"
-            strokeWidth="1.5"
-            initial={{ scale: 1, opacity: 0.8 }}
-            animate={{ scale: 3, opacity: 0 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
-            style={{ transformOrigin: "20px 20px" }}
-          />
-        )}
+        <circle cx="12" cy="12" r="3" fill="var(--background)" />
       </svg>
-    </div>
+    </motion.div>
   );
 }

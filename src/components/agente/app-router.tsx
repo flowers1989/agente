@@ -1,16 +1,13 @@
 "use client";
 
-import { useAppStore } from "@/lib/store";
+import { useAppStore } from "@/lib/store-app";
 import { LandingPage } from "./pages/landing-page";
 import { AuthPage } from "./pages/auth-page";
 import { OnboardingPage } from "./pages/onboarding-page";
+import { AppPage } from "./pages/app-page";
 import { DashboardPage } from "./pages/dashboard-page";
-import { TasksPage } from "./pages/tasks-page";
-import { TaskExecutionPage } from "./pages/task-execution-page";
-import { TaskResultPage } from "./pages/task-result-page";
 import { HistoryPage } from "./pages/history-page";
 import { ReportsPage } from "./pages/reports-page";
-import { ToolsPage } from "./pages/tools-page";
 import { SettingsPage } from "./pages/settings-page";
 import { DocumentationPage } from "./pages/documentation-page";
 import { NotFoundPage } from "./pages/not-found-page";
@@ -29,20 +26,14 @@ export function AppRouter() {
         return <AuthPage mode="register" />;
       case "onboarding":
         return <OnboardingPage />;
+      case "app":
+        return <AppPage />;
       case "dashboard":
         return <DashboardPage />;
-      case "tasks":
-        return <TasksPage />;
-      case "task-execution":
-        return <TaskExecutionPage />;
-      case "task-result":
-        return <TaskResultPage />;
       case "history":
         return <HistoryPage />;
       case "reports":
         return <ReportsPage />;
-      case "tools":
-        return <ToolsPage />;
       case "settings":
         return <SettingsPage />;
       case "documentation":
@@ -52,6 +43,11 @@ export function AppRouter() {
         return <NotFoundPage />;
     }
   };
+
+  // La app es full-screen sin transición
+  if (route === "app") {
+    return <AppPage />;
+  }
 
   return (
     <AnimatePresence mode="wait">

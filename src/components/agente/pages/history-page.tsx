@@ -1,268 +1,222 @@
 "use client";
 
 import { useState } from "react";
-import { useAppStore } from "@/lib/store";
-import { MainLayout } from "@/components/agente/main-layout";
+import { useAppStore } from "@/lib/store-app";
+import { useTaskStore } from "@/lib/store-task";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { LogoMark } from "@/components/agente/logo";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
+  ArrowLeft,
   Search,
-  Download,
-  Repeat2,
-  Eye,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  Calendar,
-  Filter,
   Trash2,
+  MessageSquare,
+  Download,
+  Clock,
+  TrendingUp,
+  DollarSign,
+  Zap,
 } from "lucide-react";
-import { OPENCODE_MODELS, timeAgo, formatDuration } from "@/lib/mock-data";
+import { timeAgo, formatNumber, formatCost } from "@/lib/mock-data";
+import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { TaskDetailModal } from "@/components/agente/task-detail-modal";
-import type { Task } from "@/lib/types";
+import { useTask } from "@/hooks/use-task";
 
-const STATUS_LABELS: Record<string, { label: string; color: string; icon: typeof Clock }> = {
-  pending: { label: "Pendiente", color: "text-muted-foreground", icon: Clock },
-  running: { label: "Ejecutando", color: "text-primary", icon: Loader2 },
-  completed: { label: "Completada", color: "text-emerald-500", icon: CheckCircle2 },
-  failed: { label: "Fallida", color: "text-destructive", icon: XCircle },
-  paused: { label: "Pausada", color: "text-amber-500", icon: Clock },
-  cancelled: { label: "Cancelada", color: "text-muted-foreground", icon: XCircle },
+const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  active: { label: "Activa", color: "text-foreground" },
+  completed: { label: "Completada", color: "text-muted-foreground" },
+  failed: { label: "Fallida", color: "text-destructive" },
+  archived: { label: "Archivada", color: "text-muted-foreground/60" },
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  research: "Investigación",
+  code: "Código",
+  data: "Datos",
+  automation: "Automatización",
+  content: "Contenido",
+  general: "General",
 };
 
 export function HistoryPage() {
-  const tasks = useAppStore((s) => s.tasks);
-  const deleteTask = useAppStore((s) => s.deleteTask);
-  const startExecution = useAppStore((s) => s.startExecution);
+  const conversations = useTaskStore((s) => s.conversations);
   const navigate = useAppStore((s) => s.navigate);
+  const { selectConversation, deleteConversation } = useTask();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [modelFilter, setModelFilter] = useState("all");
-  const [detailTask, setDetailTask] = useState<Task | null>(null);
 
-  const filteredTasks = tasks.filter((t) => {
-    const matchSearch = !search ||
-      t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.description.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === "all" || t.status === statusFilter;
-    const matchModel = modelFilter === "all" || t.modelUsed === modelFilter;
-    return matchSearch && matchStatus && matchModel;
+  const filtered = conversations.filter((c) => {
+    const matchSearch =
+      !search ||
+      c.title.toLowerCase().includes(search.toLowerCase()) ||
+      c.preview.toLowerCase().includes(search.toLowerCase());
+    const matchStatus = statusFilter === "all" || c.status === statusFilter;
+    return matchSearch && matchStatus;
   });
 
+  const totalTokens = conversations.reduce((acc, c) => acc + c.tokensUsed, 0);
+  const totalCost = conversations.reduce((acc, c) => acc + c.cost, 0);
+  const successRate =
+    conversations.length > 0
+      ? Math.round((conversations.filter((c) => c.status === "completed").length / conversations.length) * 100)
+      : 0;
+
   const handleExport = () => {
-    const csv = [
-      ["Nombre", "Descripción", "Estado", "Modelo", "Creada", "Completada"].join(","),
-      ...filteredTasks.map((t) => [
-        `"${t.name}"`,
-        `"${t.description}"`,
-        t.status,
-        t.modelUsed,
-        t.createdAt,
-        t.completedAt || "",
-      ].join(",")),
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const data = conversations.map((c) => ({
+      title: c.title,
+      status: c.status,
+      created: c.createdAt,
+      updated: c.updatedAt,
+      model: c.modelUsed,
+      tokens: c.tokensUsed,
+      cost: c.cost,
+      category: c.category,
+      preview: c.preview,
+    }));
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `historial-${Date.now()}.csv`;
+    a.download = `historial-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Historial exportado");
   };
 
   return (
-    <MainLayout title="Historial" subtitle={`${tasks.length} tareas registradas`}>
-      <div className="space-y-4">
-        {/* Toolbar */}
-        <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
-          <div className="flex flex-1 flex-wrap gap-2">
-            <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar tareas..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[150px]">
-                <Filter className="size-3.5 mr-1" />
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los estados</SelectItem>
-                <SelectItem value="pending">Pendientes</SelectItem>
-                <SelectItem value="running">En ejecución</SelectItem>
-                <SelectItem value="completed">Completadas</SelectItem>
-                <SelectItem value="failed">Fallidas</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={modelFilter} onValueChange={setModelFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Modelo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los modelos</SelectItem>
-                {OPENCODE_MODELS.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+    <div className="min-h-screen max-w-4xl mx-auto px-6 py-8">
+      <div className="flex items-center justify-between mb-8">
+        <button
+          onClick={() => navigate("app")}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="size-4" />
+          Volver
+        </button>
+        <div className="flex items-center gap-2">
+          <LogoMark size={22} />
+          <span className="text-sm font-medium">Agente</span>
+        </div>
+      </div>
+
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+        <h1 className="text-2xl font-semibold tracking-tight mb-1">Historial</h1>
+        <p className="text-sm text-muted-foreground mb-8">Todas tus conversaciones con el agente.</p>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
+          {[
+            { label: "Conversaciones", value: conversations.length.toString(), icon: MessageSquare },
+            { label: "Tokens totales", value: formatNumber(totalTokens), icon: Zap },
+            { label: "Costo total", value: formatCost(totalCost), icon: DollarSign },
+            { label: "Tasa de éxito", value: `${successRate}%`, icon: TrendingUp },
+          ].map((stat) => (
+            <Card key={stat.label} className="p-3">
+              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+                <stat.icon className="size-2.5" />
+                {stat.label}
+              </div>
+              <div className="text-base font-semibold">{stat.value}</div>
+            </Card>
+          ))}
+        </div>
+
+        {/* Search + filters */}
+        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar conversaciones..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
           </div>
-          <Button variant="outline" onClick={handleExport} disabled={filteredTasks.length === 0}>
+          <div className="flex gap-1">
+            {[
+              { value: "all", label: "Todas" },
+              { value: "active", label: "Activas" },
+              { value: "completed", label: "Completadas" },
+              { value: "failed", label: "Fallidas" },
+            ].map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setStatusFilter(f.value)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-xs font-medium border transition-colors",
+                  statusFilter === f.value
+                    ? "bg-foreground text-background border-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <Button variant="outline" onClick={handleExport} disabled={conversations.length === 0}>
             <Download className="size-4" />
-            Exportar CSV
+            Exportar
           </Button>
         </div>
 
-        {/* Table */}
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[40%]">Tarea</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead className="hidden md:table-cell">Modelo</TableHead>
-                <TableHead className="hidden lg:table-cell">Creada</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredTasks.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                    No se encontraron tareas con los filtros actuales
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredTasks.map((task) => {
-                  const status = STATUS_LABELS[task.status];
-                  const model = OPENCODE_MODELS.find((m) => m.id === task.modelUsed);
-                  return (
-                    <TableRow key={task.id} className="hover:bg-muted/40">
-                      <TableCell>
-                        <button
-                          className="text-left"
-                          onClick={() => setDetailTask(task)}
-                        >
-                          <div className="font-medium text-sm">{task.name}</div>
-                          <div className="text-xs text-muted-foreground line-clamp-1">{task.description}</div>
-                          {task.tags && task.tags.length > 0 && (
-                            <div className="flex gap-1 mt-1">
-                              {task.tags.slice(0, 2).map((t) => (
-                                <span key={t} className="text-[10px] text-muted-foreground">#{t}</span>
-                              ))}
-                            </div>
-                          )}
-                        </button>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={`gap-1 ${status.color}`}>
-                          <status.icon className={`size-3 ${task.status === "running" ? "animate-spin" : ""}`} />
-                          {status.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        <span className="text-xs font-mono">{model?.name || task.modelUsed}</span>
-                      </TableCell>
-                      <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
-                        {timeAgo(task.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8"
-                            onClick={() => setDetailTask(task)}
-                            title="Ver detalles"
-                          >
-                            <Eye className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8"
-                            onClick={() => {
-                              if (task.status === "completed") {
-                                navigate("task-result", { id: task.id });
-                              } else {
-                                startExecution(task.id);
-                              }
-                            }}
-                            title="Repetir"
-                          >
-                            <Repeat2 className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 text-destructive hover:text-destructive"
-                            onClick={() => {
-                              deleteTask(task.id);
-                              toast.success("Tarea eliminada");
-                            }}
-                            title="Eliminar"
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </Card>
-
-        {/* Stats footer */}
-        {filteredTasks.length > 0 && (
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              Mostrando {filteredTasks.length} de {tasks.length} tareas
-            </span>
-            <span className="flex items-center gap-3">
-              <span className="flex items-center gap-1">
-                <CheckCircle2 className="size-3 text-emerald-500" />
-                {filteredTasks.filter(t => t.status === "completed").length} completadas
-              </span>
-              <span className="flex items-center gap-1">
-                <XCircle className="size-3 text-destructive" />
-                {filteredTasks.filter(t => t.status === "failed").length} fallidas
-              </span>
-            </span>
+        {/* List */}
+        {filtered.length === 0 ? (
+          <Card className="p-12 text-center">
+            <MessageSquare className="size-8 mx-auto mb-3 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">
+              {search || statusFilter !== "all" ? "Sin resultados" : "Sin conversaciones aún"}
+            </p>
+          </Card>
+        ) : (
+          <div className="space-y-1">
+            {filtered.map((conv) => {
+              const status = STATUS_LABELS[conv.status];
+              return (
+                <motion.div
+                  key={conv.id}
+                  layout
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="group flex items-center gap-3 p-3 rounded-lg border border-border hover:border-foreground/20 transition-colors cursor-pointer"
+                  onClick={() => selectConversation(conv.id)}
+                >
+                  <div className="size-9 rounded-md bg-muted flex items-center justify-center shrink-0">
+                    <MessageSquare className="size-4 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{conv.title}</span>
+                      <span className={cn("text-[10px] shrink-0", status.color)}>{status.label}</span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 text-[10px] text-muted-foreground">
+                      {conv.category && <span>{CATEGORY_LABELS[conv.category]}</span>}
+                      <span className="flex items-center gap-0.5">
+                        <Clock className="size-2.5" />
+                        {timeAgo(conv.updatedAt)}
+                      </span>
+                      <span className="font-mono">{conv.modelUsed}</span>
+                      <span>{formatNumber(conv.tokensUsed)} tokens</span>
+                      <span>{formatCost(conv.cost)}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteConversation(conv.id);
+                    }}
+                    className="size-7 rounded-md hover:bg-destructive/10 hover:text-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground shrink-0"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </motion.div>
+              );
+            })}
           </div>
         )}
-      </div>
-
-      <TaskDetailModal
-        task={detailTask || undefined}
-        open={!!detailTask}
-        onOpenChange={(open) => !open && setDetailTask(null)}
-      />
-    </MainLayout>
+      </motion.div>
+    </div>
   );
 }
