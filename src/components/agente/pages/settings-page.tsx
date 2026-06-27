@@ -39,8 +39,12 @@ import {
   Download,
   LogOut,
   Cpu,
+  Brain,
+  Database,
+  Lightbulb,
 } from "lucide-react";
-import { AI_MODELS } from "@/lib/mock-data";
+import { AI_MODELS, AGENT_LIST, AGENT_MODEL_ASSIGNMENTS } from "@/lib/mock-data";
+import { useMemoryStore } from "@/lib/memory/memory-store";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -123,7 +127,7 @@ export function SettingsPage() {
         <p className="text-sm text-muted-foreground mb-8">Gestiona tu cuenta y conexión.</p>
 
         <Tabs defaultValue="api">
-          <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full mb-6">
+          <TabsList className="grid grid-cols-2 sm:grid-cols-7 w-full mb-6">
             <TabsTrigger value="api" className="text-xs gap-1">
               <KeyRound className="size-3" />
               <span className="hidden sm:inline">API</span>
@@ -131,6 +135,14 @@ export function SettingsPage() {
             <TabsTrigger value="parameters" className="text-xs gap-1">
               <Sliders className="size-3" />
               <span className="hidden sm:inline">Parámetros</span>
+            </TabsTrigger>
+            <TabsTrigger value="agents" className="text-xs gap-1">
+              <Brain className="size-3" />
+              <span className="hidden sm:inline">Agentes</span>
+            </TabsTrigger>
+            <TabsTrigger value="memory" className="text-xs gap-1">
+              <Database className="size-3" />
+              <span className="hidden sm:inline">Memoria</span>
             </TabsTrigger>
             <TabsTrigger value="general" className="text-xs gap-1">
               <User className="size-3" />
@@ -306,6 +318,136 @@ export function SettingsPage() {
             </Section>
           </TabsContent>
 
+          {/* Agents Tab - Los 7 agentes con sus modelos asignados */}
+          <TabsContent value="agents" className="space-y-4">
+            <Section icon={Brain} title="Sistema de Agentes">
+              <p className="text-xs text-muted-foreground mb-3">
+                7 agentes especializados trabajan en conjunto. Cada uno usa el modelo OpenCode Go
+                ideal para su tarea. El usuario no ve qué agente está activo - solo ve "Trabajando...".
+              </p>
+              <div className="space-y-2">
+                {AGENT_LIST.map((agent, i) => {
+                  const assignment = AGENT_MODEL_ASSIGNMENTS[i];
+                  const model = AI_MODELS.find((m) => m.id === agent.modelId);
+                  return (
+                    <div key={agent.type} className="p-3 rounded-lg border border-border bg-background/50">
+                      <div className="flex items-start gap-3">
+                        <div className="size-8 rounded-md bg-muted flex items-center justify-center shrink-0 text-xs font-semibold">
+                          {i + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-medium">{agent.name}</span>
+                            <Badge variant="outline" className="text-[9px] py-0 h-4 font-mono">
+                              {model?.name}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">{agent.description}</p>
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {agent.responsibilities.map((r) => (
+                              <span key={r} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                {r}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                            <span>Velocidad: {"★".repeat(agent.speed)}</span>
+                            <span>Costo: {"★".repeat(agent.cost)}</span>
+                            <span>Calidad: {"★".repeat(agent.quality)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Section>
+
+            <Section icon={Cpu} title="Distribución de Costos">
+              <p className="text-xs text-muted-foreground mb-3">
+                Presupuesto mensual recomendado: $60 (plan OpenCode Go).
+              </p>
+              <div className="space-y-1.5">
+                {[
+                  { agent: "Analizador", pct: 5, amount: "$3.00" },
+                  { agent: "Planificador", pct: 15, amount: "$9.00" },
+                  { agent: "Ejecutor", pct: 40, amount: "$24.00" },
+                  { agent: "Verificador", pct: 15, amount: "$9.00" },
+                  { agent: "Optimizador", pct: 10, amount: "$6.00" },
+                  { agent: "Reportero", pct: 10, amount: "$6.00" },
+                  { agent: "Monitor", pct: 5, amount: "$3.00" },
+                ].map((item) => (
+                  <div key={item.agent} className="flex items-center gap-3">
+                    <span className="text-xs w-24 shrink-0">{item.agent}</span>
+                    <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full bg-foreground" style={{ width: `${item.pct}%` }} />
+                    </div>
+                    <span className="text-[10px] font-mono w-12 text-right">{item.amount}</span>
+                    <span className="text-[10px] text-muted-foreground w-8 text-right">{item.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          </TabsContent>
+
+          {/* Memory Tab - Sistema de memoria persistente */}
+          <TabsContent value="memory" className="space-y-4">
+            <Section icon={Database} title="Sistema de Memoria Persistente">
+              <p className="text-xs text-muted-foreground mb-3">
+                Los 7 agentes leen y escriben en 3 tipos de memoria.
+                Working es volátil, Episodic y Semantic persisten entre sesiones.
+              </p>
+              <MemoryStats />
+            </Section>
+
+            <Section icon={Lightbulb} title="Patrones Aprendidos (Semantic Memory)">
+              <SemanticMemoryList />
+            </Section>
+
+            <Section icon={Database} title="Historial de Tareas (Episodic Memory)">
+              <EpisodicMemoryList />
+            </Section>
+
+            <Section icon={Trash2} title="Gestión de Memoria">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-2.5 rounded-md bg-muted/30">
+                  <div>
+                    <div className="text-sm">Limpiar memoria volátil</div>
+                    <div className="text-[10px] text-muted-foreground">Working memory (contexto actual)</div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      useMemoryStore.getState().clearWorking();
+                      toast.success("Working memory limpiada");
+                    }}
+                  >
+                    Limpiar
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between p-2.5 rounded-md border border-destructive/30 bg-destructive/5">
+                  <div>
+                    <div className="text-sm text-destructive">Borrar toda la memoria</div>
+                    <div className="text-[10px] text-muted-foreground">Elimina patrones aprendidos e historial</div>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      if (confirm("¿Borrar TODA la memoria? Esto eliminará patrones aprendidos.")) {
+                        useMemoryStore.getState().clearAll();
+                        toast.success("Memoria borrada");
+                      }
+                    }}
+                  >
+                    Borrar todo
+                  </Button>
+                </div>
+              </div>
+            </Section>
+          </TabsContent>
+
           {/* General Tab */}
           <TabsContent value="general" className="space-y-4">
             <Section icon={User} title="Perfil">
@@ -475,6 +617,106 @@ function Section({
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h2>
       </div>
       <div className="space-y-3 pl-5 border-l border-border">{children}</div>
+    </div>
+  );
+}
+
+function MemoryStats() {
+  const working = useMemoryStore((s) => s.working.length);
+  const episodic = useMemoryStore((s) => s.episodic.length);
+  const semantic = useMemoryStore((s) => s.semantic.length);
+
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      <div className="p-3 rounded-lg border border-border bg-background/50">
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+          <Brain className="size-2.5" />
+          Working
+        </div>
+        <div className="text-xl font-semibold">{working}</div>
+        <div className="text-[9px] text-muted-foreground mt-0.5">Volátil</div>
+      </div>
+      <div className="p-3 rounded-lg border border-border bg-background/50">
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+          <Database className="size-2.5" />
+          Episodic
+        </div>
+        <div className="text-xl font-semibold">{episodic}</div>
+        <div className="text-[9px] text-muted-foreground mt-0.5">Persistente</div>
+      </div>
+      <div className="p-3 rounded-lg border border-border bg-background/50">
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+          <Lightbulb className="size-2.5" />
+          Semantic
+        </div>
+        <div className="text-xl font-semibold">{semantic}</div>
+        <div className="text-[9px] text-muted-foreground mt-0.5">Persistente</div>
+      </div>
+    </div>
+  );
+}
+
+function SemanticMemoryList() {
+  const semantic = useMemoryStore((s) => s.semantic);
+
+  if (semantic.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        Aún no hay patrones aprendidos. Ejecuta tareas para que el agente aprenda.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {semantic.slice(0, 10).map((entry) => (
+        <div key={entry.id} className="p-2 rounded border border-border bg-background/50">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <p className="text-xs text-foreground/90">{entry.value}</p>
+            {entry.confidence !== undefined && (
+              <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+                {Math.round(entry.confidence * 100)}%
+              </span>
+            )}
+          </div>
+          <div className="text-[9px] text-muted-foreground">
+            {new Date(entry.timestamp).toLocaleString("es-ES")}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EpisodicMemoryList() {
+  const episodic = useMemoryStore((s) => s.episodic);
+
+  if (episodic.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        Aún no hay tareas en el historial.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+      {episodic.slice(0, 20).map((entry) => (
+        <div key={entry.id} className="p-2 rounded border border-border bg-background/50">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <code className="text-[10px] font-mono text-foreground/70 truncate">{entry.key}</code>
+            {entry.success !== undefined && (
+              <span className={cn("text-[9px] shrink-0", entry.success ? "text-emerald-500" : "text-destructive")}>
+                {entry.success ? "✓" : "✕"}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-foreground/90 line-clamp-2">{entry.value}</p>
+          <div className="text-[9px] text-muted-foreground mt-1">
+            {new Date(entry.timestamp).toLocaleString("es-ES")}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

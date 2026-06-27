@@ -17,12 +17,17 @@ import {
   Check,
   Folder,
   File as FileIcon,
+  Brain,
+  Database,
+  Lightbulb,
+  Trash2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { WorkspaceTabType } from "@/lib/types";
 import { toast } from "sonner";
+import { useMemoryStore as useMemoryStoreForView } from "@/lib/memory/memory-store";
 
 const TABS: { id: WorkspaceTabType; label: string; icon: typeof Globe }[] = [
   { id: "output", label: "Output", icon: FileText },
@@ -30,6 +35,7 @@ const TABS: { id: WorkspaceTabType; label: string; icon: typeof Globe }[] = [
   { id: "terminal", label: "Terminal", icon: TerminalIcon },
   { id: "files", label: "Files", icon: Files },
   { id: "data", label: "Data", icon: FileText },
+  { id: "memory", label: "Memory", icon: Brain },
 ];
 
 export function WorkspacePanel() {
@@ -100,6 +106,7 @@ export function WorkspacePanel() {
             {workspace.activeTab === "files" && <FilesView />}
             {workspace.activeTab === "output" && <OutputView />}
             {workspace.activeTab === "data" && <DataView />}
+            {workspace.activeTab === "memory" && <MemoryView />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -413,6 +420,122 @@ function EmptyState({ icon: Icon, message }: { icon: typeof Globe; message: stri
         <Icon className="size-5 text-muted-foreground" />
       </div>
       <p className="text-xs text-muted-foreground">{message}</p>
+    </div>
+  );
+}
+
+function MemoryView() {
+  const memoryStore = useMemoryStoreForView();
+  const [activeType, setActiveType] = useState<"working" | "episodic" | "semantic">("semantic");
+
+  const memories = memoryStore[activeType] || [];
+
+  const MEMORY_INFO = {
+    working: {
+      icon: Brain,
+      label: "Working",
+      description: "Contexto actual de ejecución (volátil)",
+      color: "text-foreground",
+    },
+    episodic: {
+      icon: Database,
+      label: "Episodic",
+      description: "Historial de tareas (persistente)",
+      color: "text-amber-500",
+    },
+    semantic: {
+      icon: Lightbulb,
+      label: "Semantic",
+      description: "Patrones aprendidos (persistente)",
+      color: "text-emerald-500",
+    },
+  };
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="px-3 py-2 border-b border-border">
+        <div className="text-xs font-medium mb-1">Sistema de Memoria</div>
+        <p className="text-[10px] text-muted-foreground">
+          Los 7 agentes leen y escriben aquí para mantener contexto entre conversaciones.
+        </p>
+      </div>
+
+      {/* Memory type tabs */}
+      <div className="px-3 py-2 border-b border-border flex gap-1">
+        {(["working", "episodic", "semantic"] as const).map((type) => {
+          const info = MEMORY_INFO[type];
+          const count = memoryStore[type]?.length || 0;
+          return (
+            <button
+              key={type}
+              onClick={() => setActiveType(type)}
+              className={cn(
+                "flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors",
+                activeType === type ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <info.icon className="size-3" />
+              {info.label}
+              <span className="font-mono">({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Memory content */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+        {memories.length === 0 ? (
+          <div className="text-center py-8">
+            <Database className="size-6 mx-auto mb-2 text-muted-foreground/40" />
+            <p className="text-xs text-muted-foreground">
+              Sin entradas en {MEMORY_INFO[activeType].label.toLowerCase()} memory aún.
+            </p>
+            <p className="text-[10px] text-muted-foreground/60 mt-1">
+              {MEMORY_INFO[activeType].description}
+            </p>
+          </div>
+        ) : (
+          memories.slice(0, 50).map((entry: { id: string; key: string; value: string; timestamp: string; confidence?: number; tags?: string[] }) => (
+            <div key={entry.id} className="p-2.5 rounded border border-border bg-background/50">
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <code className="text-[10px] font-mono text-foreground/70 truncate">{entry.key}</code>
+                <span className="text-[9px] text-muted-foreground shrink-0">
+                  {new Date(entry.timestamp).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+              <p className="text-xs text-foreground/90 leading-relaxed line-clamp-3">{entry.value}</p>
+              {entry.tags && entry.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {entry.tags.slice(0, 3).map((tag: string) => (
+                    <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {entry.confidence !== undefined && (
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full bg-foreground"
+                      style={{ width: `${entry.confidence * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-muted-foreground font-mono">
+                    {Math.round(entry.confidence * 100)}%
+                  </span>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Footer stats */}
+      <div className="px-3 py-2 border-t border-border flex items-center justify-between text-[10px] text-muted-foreground">
+        <span>Total: {memories.length} entradas</span>
+        <span>Persistente: {activeType !== "working" ? "Sí" : "No"}</span>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,30 @@
 // ==================== TIPOS DEL DOMINIO ====================
-// Basado en el documento de especificación del Agente de IA Autónomo
+// Basado en el documento AGENTES.DEL.SISTEMA.md
 
-// ====== Modelos (13 modelos OpenCode Go) ======
+// ====== Los 7 Agentes del sistema ======
+export type AgentType =
+  | "analyzer"     // Agente 1: Analizador
+  | "planner"      // Agente 2: Planificador
+  | "executor"     // Agente 3: Ejecutor
+  | "verifier"     // Agente 4: Verificador
+  | "optimizer"    // Agente 5: Optimizador
+  | "reporter"     // Agente 6: Reportero
+  | "monitor";     // Agente 7: Monitor
+
+export interface AgentConfig {
+  type: AgentType;
+  name: string;
+  description: string;
+  responsibilities: string[];
+  modelId: string;        // Modelo OpenCode Go ideal
+  alternativeModelId: string;  // Alternativa
+  speed: number;          // 1-5
+  cost: number;           // 1-5
+  quality: number;        // 1-5
+  systemPrompt: string;
+}
+
+// ====== Modelos OpenCode Go (13 modelos) ======
 export interface AIModel {
   id: string;
   name: string;
@@ -54,23 +77,22 @@ export interface User {
   name: string;
   createdAt: string;
   updatedAt: string;
-  avatar?: string;
 }
 
 export interface APIConfig {
-  apiKey: string;        // Encriptado
-  selectedModel: string;
+  apiKey: string;
+  selectedModel: string;  // Modelo por defecto del usuario (override)
   isActive: boolean;
   lastTestedAt: string | null;
   testResult: "success" | "failed" | null;
 }
 
 export interface ModelParameters {
-  temperature: number;        // 0.0 - 2.0
+  temperature: number;
   maxTokens: number;
-  topP: number;               // 0.0 - 1.0
-  frequencyPenalty: number;   // -2.0 - 2.0
-  presencePenalty: number;    // -2.0 - 2.0
+  topP: number;
+  frequencyPenalty: number;
+  presencePenalty: number;
   stopSequences: string[];
 }
 
@@ -78,6 +100,35 @@ export interface UserPreferences {
   theme: "dark" | "light";
   notifications: boolean;
   autoSaveTasks: boolean;
+}
+
+// ====== Sistema de Memoria Persistente ======
+// 3 tipos de memoria según el .md:
+// - Working: contexto actual de ejecución (volátil)
+// - Episodic: historial de tareas ejecutadas (permanente)
+// - Semantic: patrones aprendidos y mejores prácticas (permanente)
+
+export type MemoryType = "working" | "episodic" | "semantic";
+
+export interface MemoryEntry {
+  id: string;
+  type: MemoryType;
+  key: string;
+  value: string;
+  conversationId?: string;  // Para episodic (asociado a una conversación)
+  timestamp: string;
+  // Para semantic: cómo de confiable es este patrón (0-1)
+  confidence?: number;
+  // Para episodic: resultado de la tarea
+  success?: boolean;
+  // Etiquetas para búsqueda
+  tags?: string[];
+}
+
+export interface MemorySystem {
+  working: MemoryEntry[];     // Volátil, se limpia entre conversaciones
+  episodic: MemoryEntry[];    // Persistente, historial de tareas
+  semantic: MemoryEntry[];    // Persistente, patrones aprendidos
 }
 
 // ====== Tareas y Ejecución ======
@@ -104,6 +155,15 @@ export interface Task {
 
 export type TaskCategory = "research" | "code" | "data" | "automation" | "content" | "general";
 
+// ====== Análisis (salida del Analizador) ======
+export interface Analysis {
+  entities: { type: string; value: string }[];
+  constraints: { type: string; description: string }[];
+  context: string;
+  complexity: "low" | "medium" | "high";
+}
+
+// ====== Plan (salida del Planificador) ======
 export interface ExecutionStep {
   id: string;
   stepNumber: number;
@@ -121,8 +181,10 @@ export interface ExecutionStep {
   dependencies?: number[];
   // Qué tipo de output produce (para el workspace)
   produces?: WorkspaceTabType;
-  // Agente interno que lo ejecuta (invisible al usuario)
-  agent?: "planner" | "executor" | "verifier";
+  // Qué agente ejecuta este paso (invisible al usuario)
+  agent?: AgentType;
+  // Modelo usado en este paso (invisible al usuario, pero visible en stats)
+  modelUsed?: string;
 }
 
 export interface ExecutionPlan {
@@ -131,6 +193,7 @@ export interface ExecutionPlan {
   riskFactors: string[];
 }
 
+// ====== Ejecución completa ======
 export type ExecutionStatus = "running" | "paused" | "completed" | "failed" | "cancelled";
 
 export interface Execution {
@@ -145,16 +208,8 @@ export interface Execution {
   tokensUsed: number;
   estimatedCost: number;
   actualCost: number;
-  // Sistema de memoria (interno)
   variables: Record<string, string>;
-  memory: MemoryEntry[];
   errors: string[];
-}
-
-export interface MemoryEntry {
-  type: "working" | "episodic" | "semantic";
-  key: string;
-  value: string;
 }
 
 // ====== Logs ======
@@ -166,10 +221,11 @@ export interface LogEntry {
   level: LogLevel;
   message: string;
   stepId?: string;
+  agent?: AgentType;  // Qué agente generó este log
   context?: Record<string, unknown>;
 }
 
-// ====== Conversación (estilo Manus) ======
+// ====== Conversación (estilo Manus) con memoria persistente ======
 export interface Conversation {
   id: string;
   title: string;
@@ -182,9 +238,11 @@ export interface Conversation {
   cost: number;
   category?: TaskCategory;
   preview: string;
-  // Información de la ejecución asociada (si hay)
   executionId?: string;
-  steps?: ExecutionStep[];
+  // Resumen generado para memoria episódica
+  summary?: string;
+  // Patrones aprendidos (memoria semántica)
+  learnedPatterns?: string[];
 }
 
 export interface ChatMessage {
@@ -192,16 +250,14 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
-  // Estado del agente (invisible al usuario - solo se muestra "Trabajando")
   agentStatus?: AgentStatus;
-  // Pasos asociados (si es mensaje del assistant)
   steps?: ExecutionStep[];
-  // Output final
   output?: MessageOutput;
+  // Referencias a memoria usada en esta respuesta
+  memoryReferences?: { type: MemoryType; key: string }[];
 }
 
-// Estado interno del agente - NO se muestra directamente al usuario
-// El usuario solo ve "Trabajando..." con dots animados
+// Estado del agente (invisible al usuario - solo ve "Trabajando...")
 export type AgentStatus =
   | "thinking"
   | "planning"
@@ -211,6 +267,9 @@ export type AgentStatus =
   | "analyzing"
   | "executing"
   | "verifying"
+  | "optimizing"
+  | "reporting"
+  | "monitoring"
   | "completed"
   | "failed";
 
@@ -223,29 +282,16 @@ export interface MessageOutput {
   url?: string;
 }
 
-// ====== Workspace (panel derecho tipo Manus) ======
-export type WorkspaceTabType = "browser" | "terminal" | "files" | "output" | "data";
+// ====== Workspace ======
+export type WorkspaceTabType = "browser" | "terminal" | "files" | "output" | "data" | "memory";
 
 export interface WorkspaceState {
   activeTab: WorkspaceTabType;
-  browser?: {
-    url: string;
-    title: string;
-    loading: boolean;
-    screenshot?: string;
-  };
-  terminal?: {
-    lines: { type: "input" | "output" | "error"; text: string }[];
-    cwd?: string;
-  };
+  browser?: { url: string; title: string; loading: boolean; screenshot?: string };
+  terminal?: { lines: { type: "input" | "output" | "error"; text: string }[]; cwd?: string };
   files?: { name: string; path: string; type: "file" | "dir"; size?: number; modified?: string }[];
   activeFile?: { name: string; content: string; language: string };
-  output?: {
-    type: "text" | "code" | "image" | "data" | "html";
-    content: string;
-    title?: string;
-    language?: string;
-  };
+  output?: { type: "text" | "code" | "image" | "data" | "html"; content: string; title?: string; language?: string };
 }
 
 // ====== Stats y Reportes ======
@@ -285,15 +331,10 @@ export type Route =
   | "login"
   | "register"
   | "onboarding"
-  | "app"             // Vista principal tipo Manus (chat + workspace)
+  | "app"
   | "dashboard"
   | "history"
   | "reports"
   | "settings"
   | "documentation"
   | "not-found";
-
-export interface RouteState {
-  name: Route;
-  params?: Record<string, string>;
-}
