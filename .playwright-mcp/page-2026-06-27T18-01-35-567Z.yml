@@ -1,0 +1,44 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e193]:
+    - generic [ref=e194]:
+      - generic [ref=e195]:
+        - img [ref=e197]
+        - generic [ref=e200]: Agente
+      - generic [ref=e201]: Hola, Test User
+    - generic [ref=e203]:
+      - generic [ref=e204]:
+        - img [ref=e242]
+        - generic [ref=e206]: Bienvenida
+      - generic [ref=e207]:
+        - img [ref=e265]
+        - generic [ref=e209]: API Key
+      - generic [ref=e210]:
+        - img [ref=e291]
+        - generic [ref=e212]: Probar conexión
+      - generic [ref=e213]:
+        - img [ref=e323]
+        - generic [ref=e215]: Elegir modelo
+      - generic [ref=e216]:
+        - generic [ref=e217]: "5"
+        - generic [ref=e218]: Listo
+    - generic [ref=e326]:
+      - img [ref=e328]
+      - heading "Todo listo" [level=1] [ref=e330]
+      - paragraph [ref=e331]: Tu agente está configurado. Ya puedes empezar a pedirle tareas.
+      - generic [ref=e333]:
+        - generic [ref=e334]:
+          - generic [ref=e335]: API Key
+          - generic [ref=e336]: sk-••••••
+        - generic [ref=e337]:
+          - generic [ref=e338]: Modelo inicial
+          - generic [ref=e339]: Kimi K2.7 Code
+        - generic [ref=e340]:
+          - generic [ref=e341]: Estado
+          - generic [ref=e342]: Conectado
+      - button "Empezar a usar" [ref=e343]:
+        - img
+        - text: Empezar a usar
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert [ref=e191]

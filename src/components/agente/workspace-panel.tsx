@@ -28,6 +28,8 @@ import { cn } from "@/lib/utils";
 import type { WorkspaceTabType } from "@/lib/types";
 import { toast } from "sonner";
 import { useMemoryStore as useMemoryStoreForView } from "@/lib/memory/memory-store";
+import { BrowserControlView } from "@/components/agente/browser/BrowserControlView";
+import { Markdown } from "@/components/ui/markdown";
 
 const TABS: { id: WorkspaceTabType; label: string; icon: typeof Globe }[] = [
   { id: "output", label: "Output", icon: FileText },
@@ -115,58 +117,7 @@ export function WorkspacePanel() {
 }
 
 function BrowserView() {
-  const workspace = useExecutionStore((s) => s.workspace);
-  const browser = workspace.browser;
-
-  if (!browser) {
-    return <EmptyState icon={Globe} message="Sin actividad de navegador aún" />;
-  }
-
-  return (
-    <div className="h-full flex flex-col">
-      <div className="px-3 py-2 border-b border-border flex items-center gap-2">
-        <button className="size-6 rounded hover:bg-muted flex items-center justify-center text-muted-foreground">
-          <RefreshCw className="size-3" />
-        </button>
-        <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 rounded bg-muted text-xs text-muted-foreground truncate">
-          {browser.loading ? (
-            <Loader2 className="size-3 animate-spin" />
-          ) : (
-            <span className="size-2 rounded-full bg-emerald-500" />
-          )}
-          <span className="truncate">{browser.url}</span>
-        </div>
-        <button className="size-6 rounded hover:bg-muted flex items-center justify-center text-muted-foreground">
-          <ExternalLink className="size-3" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="text-xs text-muted-foreground mb-3 uppercase tracking-wider">{browser.title}</div>
-        {browser.loading ? (
-          <div className="space-y-2">
-            <div className="h-3 w-3/4 bg-muted rounded shimmer" />
-            <div className="h-3 w-full bg-muted rounded shimmer" />
-            <div className="h-3 w-5/6 bg-muted rounded shimmer" />
-            <div className="h-3 w-2/3 bg-muted rounded shimmer" />
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="text-sm font-medium">Resultados de búsqueda</div>
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="p-2.5 rounded border border-border bg-background/50">
-                <div className="text-xs text-foreground font-medium mb-0.5">Resultado #{i} - Título del sitio web</div>
-                <div className="text-[10px] text-muted-foreground mb-1">https://example{i}.com/page</div>
-                <div className="text-xs text-muted-foreground leading-relaxed">
-                  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore.
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <BrowserControlView />;
 }
 
 function TerminalView() {
@@ -371,7 +322,7 @@ function OutputView() {
             {output.content}
           </pre>
         ) : (
-          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{output.content}</p>
+          <Markdown content={output.content} />
         )}
       </div>
     </div>

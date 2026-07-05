@@ -1,0 +1,81 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - button:
+                  - img
+              - heading [level=3]: Hola
+            - generic:
+              - button:
+                - img
+                - generic: Agregar
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - paragraph: Hola
+                  - generic: 12:02
+              - generic:
+                - generic:
+                  - generic:
+                    - img
+                - generic:
+                  - paragraph: Voy a trabajar en esta tarea. Te mostraré el progreso en el panel derecho.
+                  - generic:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Analizando requerimiento
+                      - generic: 35s
+                      - img
+                      - img
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Ejecutando tarea principal
+                      - generic: 37s
+                      - img
+                      - img
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Verificando resultado
+                      - generic: 29s
+                      - img
+                      - img
+                  - generic:
+                    - paragraph: "Tarea completada exitosamente. He generado el resultado solicitado y está disponible para descarga o revisión en el workspace. Pasos completados: 3 Tiempo total: 0s"
+                    - button:
+                      - text: Ver en workspace
+                      - img
+              - generic: 8.0K tokens · $3.99 · kimi-k2.7-code
+          - generic:
+            - generic:
+              - generic:
+                - textbox:
+                  - /placeholder: Pide lo que necesites...
+                - button [disabled]:
+                  - img
+              - paragraph: Enter para enviar · Shift+Enter para nueva línea
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert
+  - dialog "Seleccionar de Archivos recientes" [ref=e495]:
+    - heading "Seleccionar de Archivos recientes" [level=2] [ref=e497]
+    - generic [ref=e503] [cursor=pointer]:
+      - checkbox "test.txt file · 13 B" [ref=e504]
+      - img [ref=e505]
+      - generic [ref=e508]:
+        - paragraph [ref=e509]: test.txt
+        - paragraph [ref=e510]: file · 13 B
+    - generic [ref=e511]:
+      - button "Cancelar" [active] [ref=e512]
+      - button "Importar (0)" [disabled]
+    - button "Close" [ref=e513]:
+      - img
+      - generic [ref=e514]: Close

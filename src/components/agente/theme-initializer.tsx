@@ -23,5 +23,5 @@ export function ThemeInitializer() {
     if (isAuth && route === "landing") {
       navigate("app");
     }
-  }, []);
+  }, [isAuthenticated, user, onboarded, route, navigate]);
 }

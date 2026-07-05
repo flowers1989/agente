@@ -1,0 +1,41 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e148]:
+    - button "Volver" [ref=e150]:
+      - img [ref=e151]
+      - text: Volver
+    - generic [ref=e154]:
+      - generic [ref=e155]:
+        - img [ref=e157]
+        - heading "Crear cuenta" [level=1] [ref=e160]
+        - paragraph [ref=e161]: Empieza en menos de un minuto
+      - generic [ref=e162]:
+        - generic [ref=e163]:
+          - generic [ref=e164]: Nombre
+          - generic [ref=e165]:
+            - img [ref=e166]
+            - textbox "Nombre" [ref=e169]:
+              - /placeholder: Tu nombre
+        - generic [ref=e170]:
+          - generic [ref=e171]: Email
+          - generic [ref=e172]:
+            - img [ref=e173]
+            - textbox "Email" [ref=e176]:
+              - /placeholder: tu@email.com
+        - generic [ref=e177]:
+          - generic [ref=e178]: Contraseña
+          - generic [ref=e179]:
+            - img [ref=e180]
+            - textbox "Contraseña" [ref=e183]:
+              - /placeholder: ••••••••
+            - button [ref=e184]:
+              - img [ref=e185]
+        - button "Crear cuenta" [ref=e188]:
+          - text: Crear cuenta
+          - img
+      - paragraph [ref=e189]:
+        - text: ¿Ya tienes cuenta?
+        - button "Inicia sesión" [ref=e190]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert [ref=e191]

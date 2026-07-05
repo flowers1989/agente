@@ -10,6 +10,8 @@ import { MonitorAgent, type MonitorMetrics, type Anomaly } from "./monitor-agent
 import type { Analysis, ExecutionPlan, ExecutionStep, Execution, MessageOutput, AgentStatus, TaskCategory } from "../types";
 import { useMemoryStore } from "../memory/memory-store";
 import { TASK_TEMPLATES, detectCategory } from "../mock-data";
+import type { ToolExecutionResult } from "./tool-registry";
+import { getAdapter } from "./opencode-adapter";
 
 // ==================== ORQUESTADOR DE AGENTES ====================
 // Coordina el flujo completo de los 7 agentes:
@@ -30,7 +32,7 @@ export interface OrchestratorCallbacks {
   onPlanCreated?: (plan: ExecutionPlan, category: TaskCategory) => void;
   onStepStarted?: (step: ExecutionStep, agentStatus: AgentStatus) => void;
   onStepProgress?: (stepId: string, log: string) => void;
-  onStepCompleted?: (step: ExecutionStep, result: string) => void;
+  onStepCompleted?: (step: ExecutionStep, result: string, output?: ToolExecutionResult["output"]) => void;
   onStepFailed?: (step: ExecutionStep, error: string) => void;
   onVerificationResult?: (verification: VerificationResult) => void;
   onOptimizationSuggestions?: (optimization: OptimizationResult) => void;
@@ -65,6 +67,7 @@ export class AgentOrchestrator {
   private optimizer: OptimizerAgent;
   private reporter: ReporterAgent;
   private monitor: MonitorAgent;
+  private adapter = getAdapter();
 
   constructor() {
     this.analyzer = new AnalyzerAgent();
@@ -79,9 +82,22 @@ export class AgentOrchestrator {
   async executeTask(
     objective: string,
     conversationId: string,
-    callbacks: OrchestratorCallbacks
+    callbacks: OrchestratorCallbacks,
+    originalObjective?: string
   ): Promise<OrchestratorResult> {
+    // El objetivo real del usuario se usa para detectar categoría y generar queries.
+    // `objective` puede estar enriquecido con contexto previo de la conversación.
+    const userObjective = originalObjective || objective;
+
     try {
+      // Guardar objetivo original en working memory para que los agentes generen queries específicos
+      useMemoryStore.getState().store(
+        "working",
+        `objective:${conversationId}`,
+        userObjective,
+        { conversationId, tags: ["objective", conversationId] }
+      );
+
       // ========== FASE 1: ANÁLISIS (Analizador) ==========
       // Modelo: DeepSeek V4 Flash
       const analysis = await this.analyzer.analyze(objective, conversationId);
@@ -89,8 +105,12 @@ export class AgentOrchestrator {
 
       // ========== FASE 2: PLANIFICACIÓN (Planificador) ==========
       // Modelo: Qwen3.7 Plus
-      const category = detectCategory(objective) as TaskCategory;
-      const plan = await this.planner.createPlan(analysis, objective, conversationId);
+      // Usar userObjective para detectar la categoría real de la petición actual,
+      // no el contextPrompt enriquecido con mensajes previos.
+      const category = detectCategory(userObjective) as TaskCategory;
+      // Pasar el objetivo limpio al planificador para que detecte la categoría real
+      // y no se deje confundir por el contextPrompt con texto pegado.
+      const plan = await this.planner.createPlan(analysis, userObjective, conversationId);
       callbacks.onPlanCreated?.(plan, category);
 
       // Crear objeto Execution
@@ -108,6 +128,9 @@ export class AgentOrchestrator {
         variables: {},
         errors: [],
       };
+
+      // Resetear uso acumulado del adaptador para esta ejecución
+      this.adapter.resetUsage();
 
       // ========== INICIAR MONITOREO (Monitor) ==========
       // Modelo: MiMo-V2.5 - monitorea en background
@@ -130,6 +153,10 @@ export class AgentOrchestrator {
         const step = plan.steps[i];
         execution.currentStepIndex = i;
 
+        // Sincronizar estado en el plan para que el reportero vea el estado real
+        step.status = "running";
+        step.startedAt = new Date().toISOString();
+
         // Determinar el agentStatus basado en el agente que ejecuta este paso
         const agentStatus = this.getAgentStatusForStep(step);
         callbacks.onStepStarted?.(step, agentStatus);
@@ -146,41 +173,43 @@ export class AgentOrchestrator {
         const result = await this.executor.executeStep(step, conversationId);
 
         if (result.success) {
-          // ========== FASE 4: VERIFICACIÓN (Verificador) ==========
-          lastVerification = await this.verifier.verifyStep(step, result, conversationId);
-          callbacks.onVerificationResult?.(lastVerification);
+          // En modo económico no verificamos pasos exitosos para ahorrar tokens.
+          // Solo se invoca al verificador cuando hay errores.
+          step.status = "completed";
+          step.duration = result.duration;
+          step.result = result.result || "";
+          step.output = result.output;
+          step.completedAt = new Date().toISOString();
 
-          if (lastVerification.action === "retry") {
-            // Reintentar una vez
-            const retryResult = await this.executor.executeStep(step, conversationId);
-            if (retryResult.success) {
-              callbacks.onStepCompleted?.(step, retryResult.result || "");
-            } else {
-              execution.errors.push(retryResult.error || "Error");
-              callbacks.onStepFailed?.(step, retryResult.error || "Error");
-            }
-          } else {
-            callbacks.onStepCompleted?.(step, result.result || "");
-          }
-
-          // Actualizar costo
-          execution.actualCost += (step.duration || 30) * 0.005;
-          execution.tokensUsed += Math.floor(Math.random() * 3000) + 1500;
+          callbacks.onStepCompleted?.(step, result.result || "", result.output);
         } else {
+          step.status = "failed";
+          step.error = result.error || "Error";
+          step.completedAt = new Date().toISOString();
+
           execution.errors.push(result.error || "Error");
           callbacks.onStepFailed?.(step, result.error || "Error");
 
-          // Verificar si se puede reintentar
+          // Verificar si se puede reintentar solo en errores
           lastVerification = await this.verifier.verifyStep(step, result, conversationId);
           callbacks.onVerificationResult?.(lastVerification);
 
           if (lastVerification.action === "retry") {
             // Reintentar
+            step.status = "running";
             const retryResult = await this.executor.executeStep(step, conversationId);
             if (retryResult.success) {
-              callbacks.onStepCompleted?.(step, retryResult.result || "");
+              step.status = "completed";
+              step.duration = retryResult.duration;
+              step.result = retryResult.result || "";
+              step.error = undefined;
+              step.completedAt = new Date().toISOString();
+              callbacks.onStepCompleted?.(step, retryResult.result || "", retryResult.output);
             } else {
               // Falló definitivamente
+              step.status = "failed";
+              step.error = retryResult.error || "Error";
+              step.completedAt = new Date().toISOString();
               execution.status = "failed";
               break;
             }
@@ -192,6 +221,18 @@ export class AgentOrchestrator {
         }
       }
 
+      // Capturar el output final del último paso completado (si existe)
+      // Esto permite que tareas de contenido usen el documento generado como reporte final.
+      const lastCompletedStep = [...execution.plan.steps].reverse().find((s) => s.status === "completed");
+      if (lastCompletedStep?.output) {
+        execution.finalOutput = lastCompletedStep.output;
+      }
+
+      // Sincronizar tokens/costo reales acumulados por el adaptador
+      const usage = this.adapter.getUsageStats();
+      execution.tokensUsed = usage.totalTokens;
+      execution.actualCost = usage.totalCost;
+
       // Detener monitoreo
       this.monitor.stopMonitoring();
 
@@ -201,12 +242,15 @@ export class AgentOrchestrator {
       }
 
       // ========== FASE 5: OPTIMIZACIÓN (Optimizador) ==========
-      // Modelo: MiniMax M3
-      const optimizations = await this.optimizer.optimizeExecution(execution, conversationId);
+      // Omitido en modo económico para reducir tokens. Se puede reactivar si se necesita.
+      const optimizations: OptimizationResult = {
+        suggestions: [],
+        savings: { timeReduction: "0s", costReduction: "$0.00" },
+      };
       callbacks.onOptimizationSuggestions?.(optimizations);
 
       // ========== FASE 6: REPORTE (Reportero) ==========
-      // Modelo: Kimi K2.7 Code
+      // Modelo: MiniMax M3
       const report = await this.reporter.generateReport(execution, conversationId, category);
       callbacks.onReportGenerated?.(report);
 

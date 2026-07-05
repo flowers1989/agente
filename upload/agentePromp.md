@@ -28,7 +28,7 @@ Construir un **agente de IA autónomo configurable** que:
 - Ejecute tareas complejas de forma autónoma
 - Proporcione interfaz web moderna y profesional
 - Integre 56 herramientas de ejecución
-- Ofrezca experiencia similar a Manus AI
+- Ofrezca experiencia de agente autónomo completo
 
 ### Diferenciadores Clave
 ✅ **OpenCode Go como único proveedor LLM**

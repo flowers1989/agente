@@ -10,6 +10,7 @@ import type {
   Route,
 } from "./types";
 import { AI_MODELS } from "./mock-data";
+import { getAdapter } from "./agents/opencode-adapter";
 
 // ==================== APP STORE ====================
 // Maneja: auth, config, theme, routing, sidebar
@@ -146,7 +147,6 @@ export const useAppStore = create<AppState>()(
         if (!config || !config.apiKey) {
           return { success: false, message: "No hay API key configurada" };
         }
-        await new Promise((r) => setTimeout(r, 1500));
         if (config.apiKey.length < 10) {
           set({
             apiConfig: {
@@ -156,20 +156,57 @@ export const useAppStore = create<AppState>()(
               isActive: false,
             },
           });
-          return { success: false, message: "API key inválida o expirada" };
+          return { success: false, message: "API key inválida (muy corta)" };
         }
-        set({
-          apiConfig: {
-            ...config,
-            lastTestedAt: new Date().toISOString(),
-            testResult: "success",
-            isActive: true,
-          },
-        });
-        return {
-          success: true,
-          message: `Conexión exitosa. ${AI_MODELS.length} modelos disponibles.`,
-        };
+
+        // Verificación real contra el proxy backend /api/chat/completions.
+        const adapter = getAdapter();
+        adapter.initialize(config.apiKey);
+        adapter.selectModel(config.selectedModel || "kimi-k2.7-code");
+
+        try {
+          const isConnected = await adapter.testConnection();
+          if (!isConnected) {
+            set({
+              apiConfig: {
+                ...config,
+                lastTestedAt: new Date().toISOString(),
+                testResult: "failed",
+                isActive: false,
+              },
+            });
+            return {
+              success: false,
+              message: "No se pudo conectar con OpenCode Go. Verifica la API key y tu conexión.",
+            };
+          }
+          set({
+            apiConfig: {
+              ...config,
+              lastTestedAt: new Date().toISOString(),
+              testResult: "success",
+              isActive: true,
+            },
+          });
+          return {
+            success: true,
+            message: `Conexión exitosa con OpenCode Go.`,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Error desconocido";
+          set({
+            apiConfig: {
+              ...config,
+              lastTestedAt: new Date().toISOString(),
+              testResult: "failed",
+              isActive: false,
+            },
+          });
+          return {
+            success: false,
+            message: `Error de conexión: ${message}`,
+          };
+        }
       },
 
       setModelParameters: (params) => {

@@ -27,10 +27,15 @@ export class AnalyzerAgent extends BaseAgent {
     const memoryStore = useMemoryStore.getState();
     const relevantContext = memoryStore.getRelevantContext(objective);
 
-    // 2. Llamar al LLM para análisis
-    // En producción: const response = await this.callLLM(prompt);
-    // Por ahora: simulamos basándonos en el objetivo
-    const analysis = this.simulateAnalysis(objective);
+    // 2. Intentar análisis con LLM real; si falla (sin API key, error de red),
+    //    hacer fallback a análisis basado en reglas.
+    let analysis: Analysis;
+    try {
+      analysis = await this.analyzeWithLLM(objective);
+    } catch (error) {
+      console.warn("[AnalyzerAgent] LLM analysis failed, using fallback:", error);
+      analysis = this.simulateAnalysis(objective);
+    }
 
     // 3. Guardar análisis en working memory
     this.storeInMemory("working", `analysis:${conversationId}`, JSON.stringify(analysis), {
@@ -51,6 +56,43 @@ export class AnalyzerAgent extends BaseAgent {
     this.emit("analysis:completed", { conversationId, analysis });
 
     return analysis;
+  }
+
+  private async analyzeWithLLM(objective: string): Promise<Analysis> {
+    const prompt = `Analiza el siguiente objetivo del usuario y responde ÚNICAMENTE con el JSON solicitado.
+
+Objetivo: """${objective}"""
+
+Responde con este JSON exacto:
+{
+  "entities": [{ "type": "person|place|object|action", "value": "..." }],
+  "constraints": [{ "type": "time|resource|access|other", "description": "..." }],
+  "context": "...",
+  "complexity": "low|medium|high"
+}`;
+
+    const response = await this.callLLM(prompt, { maxTokens: 1024 });
+    const content = response.content.trim();
+
+    // Extraer JSON de la respuesta (puede venir envuelto en markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("No se encontró JSON en la respuesta del analizador");
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as Analysis;
+
+    // Validar campos mínimos
+    if (!Array.isArray(parsed.entities) || !Array.isArray(parsed.constraints)) {
+      throw new Error("JSON de análisis inválido");
+    }
+
+    return {
+      entities: parsed.entities,
+      constraints: parsed.constraints,
+      context: parsed.context || "tarea general",
+      complexity: ["low", "medium", "high"].includes(parsed.complexity) ? parsed.complexity : "medium",
+    };
   }
 
   private simulateAnalysis(objective: string): Analysis {

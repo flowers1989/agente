@@ -1,0 +1,31 @@
+{
+  "project": {
+    "name": "ChatApp",
+    "version": "1.0.0",
+    "description": "Aplicación ChatApp",
+    "author": "Agente IA",
+    "license": "MIT"
+  },
+  "platforms": {
+    "linux": {
+      "enabled": true,
+      "outputFormat": "tar.gz",
+      "architecture": "x86_64"
+    },
+    "android": {
+      "enabled": true,
+      "outputFormat": "apk",
+      "architecture": "arm64-v8a,armeabi-v7a",
+      "minSdk": 26,
+      "targetSdk": 34
+    }
+  },
+  "features": {
+    "realtime": true
+  },
+  "optimization": {
+    "minify": true,
+    "stripSymbols": true,
+    "compression": "medium"
+  }
+}

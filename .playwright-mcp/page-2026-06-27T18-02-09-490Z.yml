@@ -1,0 +1,41 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e347]:
+    - generic [ref=e348]:
+      - generic [ref=e386]:
+        - button [ref=e388]:
+          - img [ref=e389]
+        - heading "Hola" [level=3] [ref=e393]
+      - generic [ref=e394]:
+        - button "Agregar" [ref=e395]:
+          - img
+          - generic [ref=e396]: Agregar
+        - generic [ref=e402]: Trabajando
+    - generic [ref=e360]:
+      - generic [ref=e404]:
+        - paragraph [ref=e405]: Hola
+        - generic [ref=e406]: 12:02
+      - generic [ref=e407]:
+        - img [ref=e410]
+        - generic [ref=e413]:
+          - generic [ref=e419]: Trabajando...
+          - paragraph [ref=e420]: Voy a trabajar en esta tarea. Te mostraré el progreso en el panel derecho.
+          - generic [ref=e421]:
+            - button "Analizando requerimiento" [ref=e422] [cursor=pointer]:
+              - img [ref=e424]
+              - generic [ref=e426]: Analizando requerimiento
+              - img [ref=e427]
+              - img [ref=e430]
+            - button "Ejecutando tarea principal" [disabled] [ref=e432]:
+              - generic [ref=e435]: Ejecutando tarea principal
+            - button "Verificando resultado" [disabled] [ref=e436]:
+              - generic [ref=e439]: Verificando resultado
+    - generic [ref=e375]:
+      - generic [ref=e376]:
+        - textbox "El agente está trabajando..." [disabled] [ref=e440]
+        - button [disabled]:
+          - img
+      - paragraph [ref=e378]: Enter para enviar · Shift+Enter para nueva línea
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert [ref=e191]

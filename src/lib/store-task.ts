@@ -15,7 +15,7 @@ interface TaskState {
 
   // Actions
   createConversation: (objective: string) => string;
-  setCurrentConversation: (id: string) => void;
+  setCurrentConversation: (id: string | null) => void;
   deleteConversation: (id: string) => void;
   updateConversation: (id: string, updates: Partial<Conversation>) => void;
   addMessage: (conversationId: string, message: ChatMessage) => void;

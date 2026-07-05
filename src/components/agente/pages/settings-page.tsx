@@ -42,9 +42,11 @@ import {
   Brain,
   Database,
   Lightbulb,
+  Plug,
 } from "lucide-react";
 import { AI_MODELS, AGENT_LIST, AGENT_MODEL_ASSIGNMENTS } from "@/lib/mock-data";
 import { useMemoryStore } from "@/lib/memory/memory-store";
+import { ConnectorsPanel } from "@/components/integration/ConnectorsPanel";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -127,10 +129,14 @@ export function SettingsPage() {
         <p className="text-sm text-muted-foreground mb-8">Gestiona tu cuenta y conexión.</p>
 
         <Tabs defaultValue="api">
-          <TabsList className="grid grid-cols-2 sm:grid-cols-7 w-full mb-6">
+          <TabsList className="grid grid-cols-2 sm:grid-cols-8 w-full mb-6">
             <TabsTrigger value="api" className="text-xs gap-1">
               <KeyRound className="size-3" />
               <span className="hidden sm:inline">API</span>
+            </TabsTrigger>
+            <TabsTrigger value="integrations" className="text-xs gap-1">
+              <Plug className="size-3" />
+              <span className="hidden sm:inline">Integraciones</span>
             </TabsTrigger>
             <TabsTrigger value="parameters" className="text-xs gap-1">
               <Sliders className="size-3" />
@@ -230,6 +236,16 @@ export function SettingsPage() {
                   {AI_MODELS.length} modelos disponibles. Puedes cambiarlo en cualquier momento.
                 </p>
               </div>
+            </Section>
+          </TabsContent>
+
+          {/* Integrations Tab */}
+          <TabsContent value="integrations" className="space-y-4">
+            <Section icon={Plug} title="Conectores">
+              <p className="text-xs text-muted-foreground mb-3">
+                Conecta aplicaciones externas para que el agente pueda ejecutar acciones reales.
+              </p>
+              <ConnectorsPanel />
             </Section>
           </TabsContent>
 

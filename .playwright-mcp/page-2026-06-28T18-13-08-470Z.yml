@@ -1,0 +1,104 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - img [ref=e8]
+          - generic [ref=e11]: Agente
+        - generic [ref=e12]:
+          - button [ref=e13]:
+            - img
+          - button "Iniciar sesión" [ref=e14]
+          - button "Registrarse" [ref=e15]
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - img [ref=e21]
+        - heading "¿Qué puedo hacer por ti?" [level=1] [ref=e24]
+        - paragraph [ref=e25]: Menos estructura, más inteligencia. Describe tu tarea y el agente se encarga del resto.
+        - button "Pídele lo que necesites..." [ref=e27]:
+          - text: Pídele lo que necesites...
+          - img [ref=e29]
+        - generic [ref=e31]:
+          - button "Crea un sitio web" [ref=e32]
+          - button "Investiga un tema" [ref=e33]
+          - button "Analiza datos" [ref=e34]
+          - button "Automatiza algo" [ref=e35]
+          - button "Más" [ref=e36]
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]: "7"
+          - generic [ref=e40]: Agentes IA
+        - generic [ref=e41]:
+          - generic [ref=e42]: "13"
+          - generic [ref=e43]: Modelos
+        - generic [ref=e44]:
+          - generic [ref=e45]: "56"
+          - generic [ref=e46]: Herramientas
+    - generic [ref=e48]:
+      - generic [ref=e49]:
+        - heading "Casos de uso" [level=2] [ref=e50]
+        - paragraph [ref=e51]: Algunas cosas que puedes pedirle
+      - generic [ref=e52]:
+        - generic [ref=e54] [cursor=pointer]:
+          - img [ref=e56]
+          - generic [ref=e59]:
+            - generic [ref=e60]: Investigación
+            - heading "Analiza el mercado de tools AI" [level=3] [ref=e61]
+            - paragraph [ref=e62]: Identifica competidores, extrae features y pricing, genera reporte.
+        - generic [ref=e64] [cursor=pointer]:
+          - img [ref=e66]
+          - generic [ref=e69]:
+            - generic [ref=e70]: Código
+            - heading "Refactoriza este proyecto legacy" [level=3] [ref=e71]
+            - paragraph [ref=e72]: Migra de PHP 5 a TypeScript con NestJS preservando comportamiento.
+        - generic [ref=e74] [cursor=pointer]:
+          - img [ref=e76]
+          - generic [ref=e77]:
+            - generic [ref=e78]: Datos
+            - heading "Crea un dashboard desde este CSV" [level=3] [ref=e79]
+            - paragraph [ref=e80]: Procesa 8000 filas y genera visualización interactiva.
+        - generic [ref=e82] [cursor=pointer]:
+          - img [ref=e84]
+          - generic [ref=e86]:
+            - generic [ref=e87]: Automatización
+            - heading "Envía un newsletter semanal" [level=3] [ref=e88]
+            - paragraph [ref=e89]: Recopila noticias de 10 fuentes RSS y envía a 1240 suscriptores.
+        - generic [ref=e91] [cursor=pointer]:
+          - img [ref=e93]
+          - generic [ref=e96]:
+            - generic [ref=e97]: Contenido
+            - heading "Escribe 10 artículos SEO" [level=3] [ref=e98]
+            - paragraph [ref=e99]: Genera 1500+ palabras por artículo optimizado.
+        - generic [ref=e101] [cursor=pointer]:
+          - img [ref=e103]
+          - generic [ref=e105]:
+            - generic [ref=e106]: General
+            - heading "Cualquier tarea compleja" [level=3] [ref=e107]
+            - paragraph [ref=e108]: Si puede descomponerse en pasos, el agente puede ejecutarla.
+    - generic [ref=e111]:
+      - heading "Empieza en 30 segundos" [level=2] [ref=e112]
+      - paragraph [ref=e113]: Solo necesitas tu API key. Sin tarjeta de crédito.
+      - generic [ref=e114]:
+        - generic [ref=e115]:
+          - img [ref=e116]
+          - text: Sin instalación
+        - generic [ref=e118]:
+          - img [ref=e119]
+          - text: Sin código
+        - generic [ref=e121]:
+          - img [ref=e122]
+          - text: Sin configuración compleja
+      - button "Crear cuenta" [ref=e124]:
+        - img
+        - text: Crear cuenta
+    - contentinfo [ref=e125]:
+      - generic [ref=e126]:
+        - generic [ref=e127]:
+          - img [ref=e129]
+          - generic [ref=e132]: Agente
+        - generic [ref=e133]:
+          - button "Privacidad" [ref=e134]
+          - button "Términos" [ref=e135]
+          - button "Configuración" [ref=e136]
+        - generic [ref=e137]: © 2026
+  - region "Notifications alt+T"

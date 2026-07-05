@@ -1,0 +1,48 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e193]:
+    - generic [ref=e194]:
+      - generic [ref=e195]:
+        - img [ref=e197]
+        - generic [ref=e200]: Agente
+      - generic [ref=e201]: Hola, Test User
+    - generic [ref=e203]:
+      - generic [ref=e204]:
+        - img [ref=e242]
+        - generic [ref=e206]: Bienvenida
+      - generic [ref=e207]:
+        - img [ref=e265]
+        - generic [ref=e209]: API Key
+      - generic [ref=e210]:
+        - generic [ref=e211]: "3"
+        - generic [ref=e212]: Probar conexión
+      - generic [ref=e213]:
+        - generic [ref=e214]: "4"
+        - generic [ref=e215]: Elegir modelo
+      - generic [ref=e216]:
+        - generic [ref=e217]: "5"
+        - generic [ref=e218]: Listo
+    - generic [ref=e220]:
+      - generic [ref=e268]:
+        - generic [ref=e269]:
+          - img [ref=e271]
+          - generic [ref=e274]:
+            - heading "Probar conexión" [level=1] [ref=e275]
+            - paragraph [ref=e276]: Verificamos que tu API key funcione
+        - generic [ref=e278]:
+          - generic [ref=e279]:
+            - generic [ref=e280]: Estado de la conexión
+            - generic [ref=e281]: "Endpoint: /v1/models"
+          - button "Probando..." [disabled]:
+            - img
+            - text: Probando...
+      - generic [ref=e240]:
+        - button "Atrás" [ref=e263]:
+          - img
+          - text: Atrás
+        - button "Continuar" [ref=e264]:
+          - text: Continuar
+          - img
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert [ref=e191]

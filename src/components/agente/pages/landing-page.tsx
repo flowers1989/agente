@@ -60,7 +60,7 @@ export function LandingPage() {
         </div>
       </header>
 
-      {/* Hero - estilo Manus */}
+      {/* Hero */}
       <section className="flex-1 flex flex-col items-center justify-center px-6 py-20 md:py-32">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -86,7 +86,7 @@ export function LandingPage() {
               Menos estructura, más inteligencia. Describe tu tarea y el agente se encarga del resto.
             </p>
 
-            {/* Input gigante estilo Manus */}
+            {/* Input gigante */}
             <div className="relative max-w-xl mx-auto">
               <button
                 onClick={() => navigate(isAuthenticated ? "app" : "register")}

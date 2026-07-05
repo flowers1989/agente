@@ -19,6 +19,9 @@ model User {
   name      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  integrations IntegrationAccount[]
+  resources    Resource[]
 }
 
 model Post {
@@ -29,4 +32,94 @@ model Post {
   authorId  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model IntegrationAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  source       String
+  name         String?
+  accountId    String?
+  accessToken  String?
+  refreshToken String?
+  tokenType    String?
+  expiresAt    DateTime?
+  scopes       String?
+  metadata     String   @default("{}")
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, source])
+}
+
+// Configuración a nivel de aplicación para OAuth2 de cada conector.
+// Estos valores se encriptan antes de persistirse.
+model ConnectorCredential {
+  id           String   @id @default(cuid())
+  source       String   @unique
+  clientId     String?
+  clientSecret String?
+  redirectUri  String?
+  scopes       String?
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Logs de auditoría de llamadas a conectores.
+model ConnectorAuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  source      String
+  action      String
+  success     Boolean
+  request     String   @default("{}")
+  response    String   @default("{}")
+  error       String?
+  durationMs  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, source])
+  @@index([createdAt])
+}
+
+// Eventos de webhooks recibidos de conectores externos.
+model ConnectorWebhookEvent {
+  id          String   @id @default(cuid())
+  source      String
+  eventType   String?
+  payload     String   @default("{}")
+  signature   String?
+  verified    Boolean  @default(false)
+  processed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([source, createdAt])
+}
+
+model Resource {
+  id            String   @id @default(cuid())
+  userId        String
+  source        String
+  externalId    String?
+  name          String
+  type          String
+  mimeType      String?
+  size          Int      @default(0)
+  url           String?
+  localPath     String?
+  thumbnailUrl  String?
+  metadata      String   @default("{}")
+  syncStatus    String   @default("synced")
+  lastSyncedAt  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, source])
+  @@index([source, externalId])
 }

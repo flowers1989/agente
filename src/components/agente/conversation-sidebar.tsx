@@ -291,6 +291,12 @@ export function MobileSidebarTrigger() {
   const navigate = useAppStore((s) => s.navigate);
   const user = useAppStore((s) => s.user);
   const logout = useAppStore((s) => s.logout);
+  const setCurrentConversation = useTaskStore((s) => s.setCurrentConversation);
+
+  const handleNewChat = () => {
+    setCurrentConversation(null);
+    navigate("app");
+  };
 
   return (
     <DropdownMenu>
@@ -304,7 +310,7 @@ export function MobileSidebarTrigger() {
           {user?.email}
         </div>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => navigate("app")}>
+        <DropdownMenuItem onClick={handleNewChat}>
           <Plus className="size-3.5 mr-2" />
           Nueva conversación
         </DropdownMenuItem>

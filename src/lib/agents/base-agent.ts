@@ -29,18 +29,30 @@ export abstract class BaseAgent {
   }
 
   // Llamar al LLM con el system prompt del agente
-  protected async callLLM(userPrompt: string, params?: { temperature?: number; maxTokens?: number }): Promise<string> {
+  protected async callLLM(
+    userPrompt: string,
+    params?: { temperature?: number; maxTokens?: number }
+  ): Promise<{ content: string; tokensUsed: number; cost: number; model: string }> {
     const messages: ChatMessage[] = [
       { role: "system", content: this.config.systemPrompt },
       { role: "user", content: userPrompt },
     ];
 
+    // Limitar tokens de salida para reducir costos (sobreescribible por params)
+    const maxTokens = params?.maxTokens ?? 2048;
+
     const response = await this.adapter.chat(messages, {
       ...params,
+      maxTokens,
       model: this.config.modelId,  // Cada agente usa su modelo asignado
     });
 
-    return response.content;
+    return {
+      content: response.content,
+      tokensUsed: response.tokensUsed,
+      cost: response.cost,
+      model: response.model,
+    };
   }
 
   // Guardar en memoria

@@ -44,7 +44,7 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* Manus-like theme: dark by default, very minimal */
+/* Theme: dark by default, very minimal */
 :root {
   --radius: 0.5rem;
   --background: oklch(0.13 0.005 250);

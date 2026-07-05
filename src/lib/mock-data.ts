@@ -61,8 +61,8 @@ Siempre responde en JSON con la estructura:
       "Estimar recursos (tiempo, costo)",
       "Optimizar el orden de ejecución",
     ],
-    modelId: "qwen3.7-plus",
-    alternativeModelId: "glm-5.2",
+    modelId: "deepseek-v4-flash",
+    alternativeModelId: "mimo-v2.5",
     speed: 4,
     cost: 4,
     quality: 5,
@@ -125,8 +125,8 @@ Si hay error, notificar al Verificador para decidir si reintentar.`,
       "Decidir acción: retry, skip, fail",
       "Retornar recomendación",
     ],
-    modelId: "glm-5.2",
-    alternativeModelId: "qwen3.7-max",
+    modelId: "deepseek-v4-flash",
+    alternativeModelId: "minimax-m3",
     speed: 4,
     cost: 3,
     quality: 5,
@@ -200,8 +200,8 @@ Siempre responde en JSON:
       "Crear visualizaciones",
       "Generar documento profesional",
     ],
-    modelId: "kimi-k2.7-code",
-    alternativeModelId: "glm-5.2",
+    modelId: "minimax-m3",
+    alternativeModelId: "deepseek-v4-flash",
     speed: 4,
     cost: 3,
     quality: 5,
@@ -257,11 +257,9 @@ export const AGENT_LIST: AgentConfig[] = [
 // Tabla de agentes → modelo asignado
 export const AGENT_MODEL_ASSIGNMENTS = [
   { agent: "Analizador", model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", reason: "Rápido, económico, extracción de info" },
-  { agent: "Planificador", model: "Qwen3.7 Plus", modelId: "qwen3.7-plus", reason: "Razonamiento, planificación, balance" },
-  { agent: "Ejecutor", model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", reason: "Velocidad extrema, bajo costo" },
-  { agent: "Verificador", model: "GLM-5.2", modelId: "glm-5.2", reason: "Análisis profundo, decisiones críticas" },
-  { agent: "Optimizador", model: "MiniMax M3", modelId: "minimax-m3", reason: "Relación costo/calidad, análisis" },
-  { agent: "Reportero", model: "Kimi K2.7 Code", modelId: "kimi-k2.7-code", reason: "Generación de contenido, formato" },
+  { agent: "Planificador", model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", reason: "Razonamiento y planificación económico" },
+  { agent: "Verificador", model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", reason: "Análisis rápido y económico" },
+  { agent: "Reportero", model: "MiniMax M3", modelId: "minimax-m3", reason: "Generación de contenido económica" },
   { agent: "Monitor", model: "MiMo-V2.5", modelId: "mimo-v2.5", reason: "Ultra rápido, tiempo real" },
 ];
 
@@ -563,18 +561,18 @@ export const TASK_TEMPLATES: Record<string, {
   learnedPattern: string;
 }> = {
   research: {
-    description: "Voy a investigar el tema sistemáticamente. Primero buscaré información relevante, luego analizaré los datos y finalmente generaré un reporte estructurado.",
+    description: "Voy a investigar el tema sistemáticamente. Primero buscaré información relevante en la web, luego extraeré datos de las fuentes, los analizaré y finalmente generaré un reporte estructurado.",
     steps: [
-      { title: "Buscando información relevante", tool: "Web Search", toolCategory: "Búsqueda", produces: "browser", duration: 18, agent: "analyzer", logs: ["Construyendo query de búsqueda", "Procesando 47 resultados", "Filtrando por relevancia"] },
+      { title: "Buscando información relevante", tool: "Web Search", toolCategory: "Búsqueda", produces: "browser", duration: 18, agent: "analyzer", logs: ["Construyendo query de búsqueda", "Procesando resultados", "Filtrando por relevancia"] },
       { title: "Extrayendo datos de fuentes", tool: "Web Extraction", toolCategory: "Navegación Web", produces: "browser", duration: 35, agent: "executor", logs: ["Navegando a fuentes", "Extrayendo contenido", "Parser aplicado"] },
-      { title: "Analizando datos recopilados", tool: "Data Analysis", toolCategory: "Análisis y Visualización", produces: "data", duration: 28, agent: "verifier", logs: ["Cargando dataset", "Aplicando análisis estadístico", "Identificando patrones"] },
-      { title: "Generando reporte final", tool: "Document Generation", toolCategory: "Generación de Contenido", produces: "output", duration: 32, agent: "reporter", logs: ["Inicializando plantilla", "Renderizando contenido", "Documento generado"] },
+      { title: "Analizando datos recopilados", tool: "Data Analysis", toolCategory: "Análisis y Visualización", produces: "data", duration: 28, agent: "verifier", logs: ["Sintetizando hallazgos", "Identificando patrones", "Preparando reporte"] },
+      { title: "Generando reporte final", tool: "Document Generation", toolCategory: "Generación de Contenido", produces: "files", agent: "reporter", duration: 30, logs: ["Estructurando reporte", "Redactando conclusiones", "Documento final listo"] },
     ],
     finalOutput: {
-      type: "text", title: "Análisis completado",
-      content: "He completado el análisis. Los hallazgos principales muestran tendencias claras, con oportunidades en 3 áreas clave. El reporte incluye datos cuantitativos, recomendaciones priorizadas y próximos pasos.",
+      type: "file", title: "reporte.md", filename: "reporte.md",
+      content: "# Reporte de investigación\n\n## Resumen Ejecutivo\n\nInvestigación completada a partir de fuentes web.",
     },
-    learnedPattern: "research: Web Search + Data Analysis + Document Generation para competitive analysis",
+    learnedPattern: "research: Web Search + Web Extraction + Data Analysis + Document Generation",
   },
   code: {
     description: "Voy a analizar el requerimiento y generar código limpio y testeable. Primero entenderé la estructura, luego implementaré la solución y finalmente añadiré tests.",
@@ -613,15 +611,15 @@ export const TASK_TEMPLATES: Record<string, {
     learnedPattern: "automation: HTTP Client + Workflow Automation + Notifications para flujos recurrentes",
   },
   content: {
-    description: "Voy a crear el contenido paso a paso. Primero investigaré el tema, luego estructuraré las ideas y finalmente redactaré el contenido optimizado.",
+    description: "Voy a investigar el tema en fuentes reales, extraer información clave, analizarla y redactar el contenido solicitado.",
     steps: [
-      { title: "Investigando tema", tool: "Web Search", toolCategory: "Búsqueda", produces: "browser", duration: 22, agent: "analyzer", logs: ["Recopilando fuentes", "Identificando keywords", "Analizando competencia"] },
-      { title: "Estructurando contenido", tool: "Code Generation", toolCategory: "Generación de Contenido", produces: "output", duration: 18, agent: "planner", logs: ["Creando outline", "Definiendo secciones", "Optimizando H2/H3"] },
-      { title: "Redactando contenido", tool: "Code Generation", toolCategory: "Generación de Contenido", produces: "files", duration: 45, agent: "reporter", logs: ["Escribiendo 1500+ palabras", "Aplicando SEO on-page", "Incluyendo CTAs"] },
-      { title: "Revisando calidad", tool: "Testing", toolCategory: "Adicionales", produces: "output", duration: 12, agent: "verifier", logs: ["Checklist SEO aplicado", "Score: 87/100"] },
+      { title: "Investigando tema", tool: "Web Search", toolCategory: "Búsqueda", produces: "browser", duration: 22, agent: "analyzer", logs: ["Generando query de búsqueda", "Buscando fuentes actualizadas", "Filtrando resultados relevantes"] },
+      { title: "Extrayendo datos de fuentes", tool: "Web Extraction", toolCategory: "Navegación Web", produces: "browser", duration: 35, agent: "executor", logs: ["Navegando a fuentes", "Extrayendo contenido relevante", "Guardando datos en memoria"] },
+      { title: "Analizando información", tool: "Data Analysis", toolCategory: "Análisis y Visualización", produces: "data", duration: 20, agent: "verifier", logs: ["Sintetizando hallazgos", "Identificando tendencias", "Preparando material para redacción"] },
+      { title: "Redactando documento", tool: "Document Generation", toolCategory: "Generación de Contenido", produces: "files", duration: 45, agent: "reporter", logs: ["Generando Markdown", "Aplicando formato profesional", "Documento listo"] },
     ],
-    finalOutput: { type: "file", title: "articulo.md", filename: "articulo.md", content: "# Título\n\n## Introducción\n\nLorem ipsum..." },
-    learnedPattern: "content: Web Search + Code Generation para artículos SEO",
+    finalOutput: { type: "file", title: "documento.md", filename: "documento.md", content: "# Título\n\n## Introducción\n\nContenido generado a partir de fuentes investigadas." },
+    learnedPattern: "content: Web Search + Web Extraction + Data Analysis + Document Generation",
   },
   general: {
     description: "Voy a trabajar en esta tarea. Te mostraré el progreso en el panel derecho.",
@@ -637,11 +635,17 @@ export const TASK_TEMPLATES: Record<string, {
 
 export function detectCategory(objective: string): "research" | "code" | "data" | "automation" | "content" | "general" {
   const lower = objective.toLowerCase();
-  if (/investiga|analiza|compara|estudia|reporte|market|compet/i.test(lower)) return "research";
+
+  // Categorías más específicas primero para evitar que palabras genéricas
+  // como "reporte" sobrescriban el dominio real de la petición.
   if (/codigo|código|función|function|refactor|migrar|migrate|api|component|bug|fix|implementa/i.test(lower)) return "code";
   if (/csv|datos|data|dataset|dashboard|estadística|stat|scraping|extract|procesa/i.test(lower)) return "data";
   if (/automatiza|schedule|newsletter|webhook|cron|recurrente|automatización/i.test(lower)) return "automation";
-  if (/artículo|blog|content|contenido|escribe|redacta|seo|copy/i.test(lower)) return "content";
+  if (/artículo|blog|content|contenido|escribe|redacta|seo|copy|manual|pdf|guía|guia|ebook|libro|documento|receta|alimentos|nutrición|nutricion|saludable|dieta|comida|comidas/i.test(lower)) return "content";
+
+  // Research es más genérico: solo se usa cuando no hay indicios de otro dominio.
+  if (/investiga|analiza|compara|estudia|reporte|market|compet/i.test(lower)) return "research";
+
   return "general";
 }
 

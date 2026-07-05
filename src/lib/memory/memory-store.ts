@@ -18,14 +18,14 @@ import type { MemoryEntry, MemoryType } from "../types";
 // - Resultados de pasos anteriores
 // - Errores y soluciones aplicadas
 // - Resúmenes de conversaciones completadas
-// - Persiste entre sesiones (localStorage)
+// - Persiste entre sesiones (localStorage en cliente)
 //
 // SEMANTIC MEMORY (permanente)
 // - Patrones aprendidos
 // - Mejores prácticas descubiertas
 // - Relaciones entre conceptos
 // - Estrategias que funcionaron
-// - Persiste entre sesiones (localStorage)
+// - Persiste entre sesiones (localStorage en cliente)
 //
 // Los 7 agentes pueden leer y escribir en esta memoria.
 // Por ejemplo:
@@ -36,6 +36,53 @@ import type { MemoryEntry, MemoryType } from "../types";
 // - El Optimizador lee episodic + semantic para sugerir mejoras
 // - El Reportero lee working memory para generar el reporte
 // - El Monitor lee todo para detectar anomalías
+
+// Storage isomorfo: en el navegador usa localStorage; en el servidor
+// (Route Handlers / SSR) usa un Map en memoria del proceso para no crashear.
+// La persistencia entre sesiones solo aplica en el cliente; en el servidor
+// la memoria vive durante el proceso (suficiente para una tarea de varios pasos).
+const serverStore = new Map<string, string>();
+
+const isomorphicStorage: StateStorage = {
+  getItem: (name: string) => {
+    if (typeof window !== "undefined") {
+      try {
+        return window.localStorage.getItem(name);
+      } catch {
+        return null;
+      }
+    }
+    return serverStore.get(name) ?? null;
+  },
+  setItem: (name: string, value: string) => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(name, value);
+      } catch {
+        // Storage lleno o bloqueado: ignoramos silenciosamente
+      }
+      return;
+    }
+    serverStore.set(name, value);
+  },
+  removeItem: (name: string) => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(name);
+      } catch {
+        // Ignorar
+      }
+      return;
+    }
+    serverStore.delete(name);
+  },
+};
+
+interface StateStorage {
+  getItem: (name: string) => string | null;
+  setItem: (name: string, value: string) => void;
+  removeItem: (name: string) => void;
+}
 
 interface MemoryState {
   // Las 3 memorias
@@ -246,7 +293,7 @@ export const useMemoryStore = create<MemoryState>()(
     }),
     {
       name: "agente-ia-memory-v2",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => isomorphicStorage),
       // Solo persistimos episodic y semantic (working es volátil)
       partialize: (state) => ({
         episodic: state.episodic,

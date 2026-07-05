@@ -9,7 +9,7 @@ interface LogoProps {
   withText?: boolean;
 }
 
-// Logo minimalista tipo Manus - solo un cuadrado con un punto
+// Logo minimalista - solo un cuadrado con un punto
 export function Logo({ size = 28, className, withText = false }: LogoProps) {
   return (
     <div className={cn("inline-flex items-center gap-2", className)}>

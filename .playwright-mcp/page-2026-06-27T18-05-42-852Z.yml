@@ -1,0 +1,53 @@
+- generic [ref=e1]:
+  - generic [ref=e347]:
+    - generic [ref=e348]:
+      - generic [ref=e386]:
+        - button [ref=e388]:
+          - img [ref=e389]
+        - heading "Hola" [level=3] [ref=e393]
+      - button "Agregar" [active] [ref=e395]:
+        - img
+        - generic [ref=e396]: Agregar
+    - generic [ref=e360]:
+      - generic [ref=e404]:
+        - paragraph [ref=e405]: Hola
+        - generic [ref=e406]: 12:02
+      - generic [ref=e407]:
+        - img [ref=e410]
+        - generic [ref=e413]:
+          - paragraph [ref=e420]: Voy a trabajar en esta tarea. Te mostraré el progreso en el panel derecho.
+          - generic [ref=e421]:
+            - button "Analizando requerimiento 35s" [ref=e441] [cursor=pointer]:
+              - img [ref=e442]
+              - generic [ref=e426]: Analizando requerimiento
+              - generic [ref=e444]: 35s
+              - img [ref=e427]
+              - img [ref=e430]
+            - button "Ejecutando tarea principal 37s" [ref=e445] [cursor=pointer]:
+              - img [ref=e446]
+              - generic [ref=e435]: Ejecutando tarea principal
+              - generic [ref=e448]: 37s
+              - img [ref=e449]
+              - img [ref=e451]
+            - button "Verificando resultado 29s" [ref=e453] [cursor=pointer]:
+              - img [ref=e454]
+              - generic [ref=e439]: Verificando resultado
+              - generic [ref=e456]: 29s
+              - img [ref=e457]
+              - img [ref=e460]
+          - generic [ref=e462]:
+            - paragraph [ref=e463]: "Tarea completada exitosamente. He generado el resultado solicitado y está disponible para descarga o revisión en el workspace. Pasos completados: 3 Tiempo total: 0s"
+            - button "Ver en workspace" [ref=e464]:
+              - text: Ver en workspace
+              - img [ref=e465]
+      - generic [ref=e467]: 8.0K tokens · $3.99 · kimi-k2.7-code
+    - generic [ref=e375]:
+      - generic [ref=e376]:
+        - textbox "Pide lo que necesites..." [ref=e468]
+        - button [disabled]:
+          - img
+      - paragraph [ref=e378]: Enter para enviar · Shift+Enter para nueva línea
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert [ref=e191]

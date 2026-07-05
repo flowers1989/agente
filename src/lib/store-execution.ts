@@ -11,7 +11,7 @@ import { useMemoryStore } from "./memory/memory-store";
 // El usuario SOLO VE "Trabajando..." - los 7 agentes son invisibles
 
 interface ExecutionState {
-  // Workspace (panel derecho tipo Manus)
+  // Workspace (panel derecho)
   workspace: WorkspaceState;
   workspaceCollapsed: boolean;
 

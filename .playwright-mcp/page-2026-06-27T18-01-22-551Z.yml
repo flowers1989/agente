@@ -1,0 +1,65 @@
+- generic [ref=e1]:
+  - generic [ref=e193]:
+    - generic [ref=e194]:
+      - generic [ref=e195]:
+        - img [ref=e197]
+        - generic [ref=e200]: Agente
+      - generic [ref=e201]: Hola, Test User
+    - generic [ref=e203]:
+      - generic [ref=e204]:
+        - img [ref=e242]
+        - generic [ref=e206]: Bienvenida
+      - generic [ref=e207]:
+        - img [ref=e265]
+        - generic [ref=e209]: API Key
+      - generic [ref=e210]:
+        - img [ref=e291]
+        - generic [ref=e212]: Probar conexión
+      - generic [ref=e213]:
+        - generic [ref=e214]: "4"
+        - generic [ref=e215]: Elegir modelo
+      - generic [ref=e216]:
+        - generic [ref=e217]: "5"
+        - generic [ref=e218]: Listo
+    - generic [ref=e220]:
+      - generic [ref=e294]:
+        - generic [ref=e295]:
+          - img [ref=e297]
+          - generic [ref=e300]:
+            - heading "Elige tu modelo" [level=1] [ref=e301]
+            - paragraph [ref=e302]: Puedes cambiarlo después
+        - generic [ref=e303]:
+          - generic [ref=e304]: Modelo inicial
+          - combobox [ref=e305]:
+            - generic:
+              - generic: Kimi K2.7 Code
+              - generic: · Coding especializado
+            - img
+          - generic [ref=e306]:
+            - button "GLM-5.2 Razonamiento avanzado $1.4/M · 1.0M" [ref=e307]:
+              - generic [ref=e308]: GLM-5.2
+              - generic [ref=e309]: Razonamiento avanzado
+              - generic [ref=e310]: $1.4/M · 1.0M
+            - button "GLM-5.1 Razonamiento avanzado $1.4/M · 203K" [ref=e311]:
+              - generic [ref=e312]: GLM-5.1
+              - generic [ref=e313]: Razonamiento avanzado
+              - generic [ref=e314]: $1.4/M · 203K
+            - button "Kimi K2.7 Code Coding especializado $0.95/M · 262K" [ref=e315]:
+              - generic [ref=e316]: Kimi K2.7 Code
+              - generic [ref=e317]: Coding especializado
+              - generic [ref=e318]: $0.95/M · 262K
+            - button "Kimi K2.6 Coding general $0.95/M · 262K" [ref=e319]:
+              - generic [ref=e320]: Kimi K2.6
+              - generic [ref=e321]: Coding general
+              - generic [ref=e322]: $0.95/M · 262K
+      - generic [ref=e240]:
+        - button "Atrás" [ref=e263]:
+          - img
+          - text: Atrás
+        - button "Continuar" [active] [ref=e264]:
+          - text: Continuar
+          - img
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert [ref=e191]

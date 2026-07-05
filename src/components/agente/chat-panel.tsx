@@ -17,6 +17,8 @@ import {
   Globe,
   Files,
   Sparkles,
+  Download,
+  Eye,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -24,6 +26,15 @@ import { cn } from "@/lib/utils";
 import { formatTime, formatNumber, formatCost } from "@/lib/mock-data";
 import type { Step, ChatMessage } from "@/lib/types";
 import { useTask } from "@/hooks/use-task";
+import { IntegrationMenu } from "@/components/integration/IntegrationMenu";
+import { exportReport, type ExportFormat } from "@/lib/export-report";
+import { Markdown } from "@/components/ui/markdown";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const PRODUCES_ICON: Record<string, typeof Globe> = {
   browser: Globe,
@@ -36,7 +47,7 @@ const PRODUCES_ICON: Record<string, typeof Globe> = {
 export function ChatPanel() {
   const conversations = useTaskStore((s) => s.conversations);
   const currentConversationId = useTaskStore((s) => s.currentConversationId);
-  const { createConversation } = useTask();
+  const { createConversation, sendMessage } = useTask();
   const user = useAppStore((s) => s.user);
   const isWorking = useExecutionStore((s) => s.isWorking);
 
@@ -46,11 +57,14 @@ export function ChatPanel() {
 
   const conversation = conversations.find((c) => c.id === currentConversationId);
 
+  const messages = conversation?.messages;
+  const lastMessageStepsLength = messages?.[messages.length - 1]?.steps?.length;
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [conversation?.messages.length, conversation?.messages[conversation.messages.length - 1]?.steps?.length]);
+  }, [conversation?.messages.length, lastMessageStepsLength]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -63,7 +77,14 @@ export function ChatPanel() {
     if (!input.trim()) return;
     const obj = input.trim();
     setInput("");
-    createConversation(obj);
+
+    if (currentConversationId) {
+      // Continuar conversación existente
+      sendMessage(currentConversationId, obj);
+    } else {
+      // Crear nueva conversación
+      createConversation(obj);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -76,7 +97,7 @@ export function ChatPanel() {
   // Empty state
   if (!conversation) {
     return (
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <div className="h-12 px-4 flex items-center gap-2 border-b border-border shrink-0 md:hidden">
           <MobileSidebarTrigger />
           <LogoMark size={20} />
@@ -131,7 +152,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {/* Header */}
       <div className="h-12 px-4 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -140,18 +161,21 @@ export function ChatPanel() {
           </div>
           <h3 className="text-sm font-medium truncate">{conversation.title}</h3>
         </div>
-        {isWorking && (
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span className="dot-anim inline-flex">
-              <span /><span /><span />
-            </span>
-            <span className="hidden sm:inline">Trabajando</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          <IntegrationMenu />
+          {isWorking && (
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span className="dot-anim inline-flex">
+                <span /><span /><span />
+              </span>
+              <span className="hidden sm:inline">Trabajando</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
           {conversation.messages.map((msg) => (
             <MessageBubble key={msg.id} message={msg} />
@@ -344,9 +368,7 @@ function OutputBlock({ message }: { message: ChatMessage }) {
     if (workspaceCollapsed) toggleWorkspace();
     setWorkspace({
       activeTab:
-        output.type === "html"
-          ? "output"
-          : output.type === "code" || output.type === "file"
+        output.type === "code"
           ? "files"
           : "output",
       output: {
@@ -366,6 +388,19 @@ function OutputBlock({ message }: { message: ChatMessage }) {
         : {}),
     });
   };
+
+  const handleExport = (format: ExportFormat) => {
+    const baseName = output.filename || output.title || "reporte";
+    exportReport(output.content, format, baseName);
+  };
+
+  const exportOptions: { label: string; format: ExportFormat }[] = [
+    { label: "Markdown (.md)", format: "markdown" },
+    { label: "PDF (.pdf)", format: "pdf" },
+    { label: "HTML (.html)", format: "html" },
+    { label: "Texto (.txt)", format: "txt" },
+    { label: "Excel (.xlsx)", format: "excel" },
+  ];
 
   return (
     <motion.div
@@ -388,14 +423,46 @@ function OutputBlock({ message }: { message: ChatMessage }) {
           <span className="text-xs font-medium">{output.title}</span>
         </div>
       )}
-      <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{output.content}</p>
-      <button
-        onClick={handleView}
-        className="mt-2 text-[10px] text-foreground hover:underline flex items-center gap-1"
-      >
-        Ver en workspace
-        <ChevronRight className="size-2.5" />
-      </button>
+      {output.content.includes("API KEY REQUERIDA") && (
+        <div className="mb-2 rounded bg-destructive/10 border border-destructive/20 px-2.5 py-1.5 text-[11px] text-destructive font-medium">
+          Falta una API key válida. El agente investigó el tema pero no puede redactar contenido. Configúrala en Configuración → API.
+        </div>
+      )}
+      <div className="max-h-48 overflow-hidden relative">
+        <Markdown content={output.content} compact />
+        {output.content.length > 600 && (
+          <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-muted/40 to-transparent pointer-events-none" />
+        )}
+      </div>
+      {output.content.length > 400 && (
+        <div className="mt-1.5 text-[10px] text-muted-foreground/70">
+          El contenido está truncado. Abre el workspace para verlo completo.
+        </div>
+      )}
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          onClick={handleView}
+          className="text-[10px] font-medium text-foreground hover:underline flex items-center gap-1"
+        >
+          <Eye className="size-2.5" />
+          Ver en workspace
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="text-[10px] text-foreground hover:underline flex items-center gap-1">
+              <Download className="size-2.5" />
+              Descargar
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {exportOptions.map((opt) => (
+              <DropdownMenuItem key={opt.format} onClick={() => handleExport(opt.format)} className="text-xs">
+                {opt.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </motion.div>
   );
 }

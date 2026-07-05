@@ -1,0 +1,98 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - button:
+                  - img
+              - heading [level=3]: Hola
+            - generic:
+              - button [expanded]:
+                - img
+                - generic: Agregar
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - paragraph: Hola
+                  - generic: 12:02
+              - generic:
+                - generic:
+                  - generic:
+                    - img
+                - generic:
+                  - paragraph: Voy a trabajar en esta tarea. Te mostraré el progreso en el panel derecho.
+                  - generic:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Analizando requerimiento
+                      - generic: 35s
+                      - img
+                      - img
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Ejecutando tarea principal
+                      - generic: 37s
+                      - img
+                      - img
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Verificando resultado
+                      - generic: 29s
+                      - img
+                      - img
+                  - generic:
+                    - paragraph: "Tarea completada exitosamente. He generado el resultado solicitado y está disponible para descarga o revisión en el workspace. Pasos completados: 3 Tiempo total: 0s"
+                    - button:
+                      - text: Ver en workspace
+                      - img
+              - generic: 8.0K tokens · $3.99 · kimi-k2.7-code
+          - generic:
+            - generic:
+              - generic:
+                - textbox:
+                  - /placeholder: Pide lo que necesites...
+                - button [disabled]:
+                  - img
+              - paragraph: Enter para enviar · Shift+Enter para nueva línea
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert
+  - menu "Agregar" [active] [ref=e516]:
+    - menuitem "Agregar desde Figma Importar diseños de Figma" [ref=e517] [cursor=pointer]:
+      - img
+      - generic [ref=e518]:
+        - generic [ref=e519]: Agregar desde Figma
+        - generic [ref=e520]: Importar diseños de Figma
+    - menuitem "Añadir desde OneDrive Importar archivos de OneDrive" [ref=e521] [cursor=pointer]:
+      - img
+      - generic [ref=e522]:
+        - generic [ref=e523]: Añadir desde OneDrive
+        - generic [ref=e524]: Importar archivos de OneDrive
+    - menuitem "Añadir desde Google Drive Importar archivos de Google Drive" [ref=e525] [cursor=pointer]:
+      - img
+      - generic [ref=e526]:
+        - generic [ref=e527]: Añadir desde Google Drive
+        - generic [ref=e528]: Importar archivos de Google Drive
+    - menuitem "Usar habilidades Utilizar habilidades disponibles" [ref=e529] [cursor=pointer]:
+      - img
+      - generic [ref=e530]:
+        - generic [ref=e531]: Usar habilidades
+        - generic [ref=e532]: Utilizar habilidades disponibles
+    - menuitem "Archivos recientes Ver archivos recientes" [ref=e533] [cursor=pointer]:
+      - img
+      - generic [ref=e534]:
+        - generic [ref=e535]: Archivos recientes
+        - generic [ref=e536]: Ver archivos recientes
+    - menuitem "Agregar desde archivos locales Subir archivos desde tu computadora" [ref=e537] [cursor=pointer]:
+      - img
+      - generic [ref=e538]:
+        - generic [ref=e539]: Agregar desde archivos locales
+        - generic [ref=e540]: Subir archivos desde tu computadora

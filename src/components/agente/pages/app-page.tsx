@@ -4,6 +4,7 @@ import { ConversationSidebar, SidebarReopenButton } from "@/components/agente/co
 import { ChatPanel } from "@/components/agente/chat-panel";
 import { WorkspacePanel } from "@/components/agente/workspace-panel";
 import { useExecution } from "@/hooks/use-execution";
+import { useBrowserAutoStart } from "@/hooks/use-browser-auto-start";
 import { useExecutionStore } from "@/lib/store-execution";
 import { useTaskStore } from "@/lib/store-task";
 import { useEffect } from "react";
@@ -11,6 +12,8 @@ import { useEffect } from "react";
 export function AppPage() {
   // El hook de simulación - internamente activa los 3 agentes (invisible al usuario)
   useExecution();
+  // Inicia el navegador automáticamente para tenerlo siempre listo
+  useBrowserAutoStart();
 
   const currentConversationId = useTaskStore((s) => s.currentConversationId);
   const resetWorkspace = useExecutionStore((s) => s.resetWorkspace);

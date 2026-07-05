@@ -2,6 +2,7 @@
 
 import { useTaskStore } from "@/lib/store-task";
 import { useAppStore } from "@/lib/store-app";
+import { useMemoryStore } from "@/lib/memory/memory-store";
 import { toast } from "sonner";
 import { detectCategory } from "@/lib/mock-data";
 
@@ -30,6 +31,22 @@ export function useTask() {
   };
 
   const handleSelect = (id: string) => {
+    // Limpiar working memory del contexto anterior y cargar resumen de la conversación seleccionada
+    useMemoryStore.getState().clearWorking();
+
+    const conversation = conversations.find((c) => c.id === id);
+    if (conversation) {
+      // Guardar un resumen de los últimos mensajes en working memory para contexto
+      const recentMessages = conversation.messages.slice(-6);
+      const contextSummary = recentMessages
+        .map((m) => `${m.role === "user" ? "Usuario" : "Asistente"}: ${m.content.slice(0, 300)}`)
+        .join("\n");
+      useMemoryStore.getState().store("working", `conversation:context:${id}`, contextSummary, {
+        conversationId: id,
+        tags: ["conversation-context", id],
+      });
+    }
+
     setCurrentConversation(id);
     useAppStore.getState().navigate("app");
   };

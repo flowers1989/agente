@@ -181,6 +181,8 @@ export interface ExecutionStep {
   dependencies?: number[];
   // Qué tipo de output produce (para el workspace)
   produces?: WorkspaceTabType;
+  // Output enriquecido generado por el paso (si aplica)
+  output?: MessageOutput;
   // Qué agente ejecuta este paso (invisible al usuario)
   agent?: AgentType;
   // Modelo usado en este paso (invisible al usuario, pero visible en stats)
@@ -210,6 +212,7 @@ export interface Execution {
   actualCost: number;
   variables: Record<string, string>;
   errors: string[];
+  finalOutput?: MessageOutput;
 }
 
 // ====== Logs ======
@@ -225,7 +228,7 @@ export interface LogEntry {
   context?: Record<string, unknown>;
 }
 
-// ====== Conversación (estilo Manus) con memoria persistente ======
+// ====== Conversación con memoria persistente ======
 export interface Conversation {
   id: string;
   title: string;
@@ -280,6 +283,7 @@ export interface MessageOutput {
   language?: string;
   filename?: string;
   url?: string;
+  loading?: boolean;
 }
 
 // ====== Workspace ======

@@ -1,0 +1,31 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e347]:
+    - generic [ref=e348]:
+      - button [ref=e349]:
+        - img [ref=e350]
+      - img [ref=e355]
+      - generic [ref=e358]: Agente
+    - generic [ref=e360]:
+      - img [ref=e363]
+      - heading "¿Qué puedo hacer por ti, Test?" [level=2] [ref=e366]
+      - paragraph [ref=e367]: Describe la tarea y el agente se encargará del resto.
+      - generic [ref=e368]:
+        - button "Investiga el mercado de tools AI y genera un reporte comparativo" [ref=e369]
+        - button "Refactoriza este proyecto PHP 5 a TypeScript con NestJS" [ref=e370]
+        - button "Crea un dashboard de ventas Q1 desde un CSV de 8000 filas" [ref=e371]
+        - button "Recopila noticias de IA y envía un newsletter a 1240 suscriptores" [ref=e372]
+        - button "Escribe 10 artículos SEO sobre tendencias de IA 2026" [ref=e373]
+    - generic [ref=e375]:
+      - generic [ref=e376]:
+        - textbox "Pide lo que necesites..." [ref=e377]
+        - button [disabled]:
+          - img
+      - paragraph [ref=e378]: Enter para enviar · Shift+Enter para nueva línea
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=e379]:
+        - img [ref=e381]
+        - generic [ref=e384]: ¡Listo!
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert [ref=e191]

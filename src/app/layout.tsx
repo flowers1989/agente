@@ -17,10 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Agente · IA que hace por ti",
   description: "Describe lo que necesitas y el agente lo ejecuta por ti en tiempo real.",
-  keywords: ["IA", "Agente", "Autónomo", "Manus", "Coding"],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
+  keywords: ["IA", "Agente", "Autónomo", "Coding"],
 };
 
 export default function RootLayout({

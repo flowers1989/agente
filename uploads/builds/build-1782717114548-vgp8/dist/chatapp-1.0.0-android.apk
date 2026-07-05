@@ -1,0 +1,8 @@
+{
+  "project": "ChatApp",
+  "version": "1.0.0",
+  "platform": "android",
+  "format": "apk",
+  "note": "Artefacto simulado. En un entorno con toolchain nativa se generaría el binario real.",
+  "generatedAt": "2026-06-29T07:11:54.651Z"
+}
