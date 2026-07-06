@@ -11,6 +11,7 @@ import { detectSimpleTask } from "@/lib/agents/simple-task-detector";
 import { getAdapter, type ChatMessage as LLMChatMessage } from "@/lib/agents/opencode-adapter";
 import { streamAgentExecution } from "@/lib/agents/stream-client";
 import { sanitizeLLMOutput } from "@/lib/utils";
+import { exportReport, type ExportFormat } from "@/lib/export-report";
 
 // ==================== HOOK DE EJECUCIÓN ====================
 // Este hook conecta el frontend con el orquestador de los 7 agentes.
@@ -137,6 +138,59 @@ export function useExecution() {
         return;
       }
       return;
+    }
+
+    // ===== DETECCIÓN DE SOLICITUD DE DESCARGA =====
+    // Si el usuario pide un formato descargable (PDF, Excel, etc.), buscamos el
+    // último contenido generado y disparamos la descarga directamente, sin
+    // activar el orquestador. Esto es lo que espera un usuario no técnico.
+    const downloadRequest = detectDownloadRequest(userMsg.content);
+    if (downloadRequest) {
+      // Buscar el último output generado en la conversación
+      const lastOutput = [...conversation.messages]
+        .reverse()
+        .find((m) => m.role === "assistant" && m.output?.content)?.output;
+
+      if (lastOutput?.content) {
+        // Disparar descarga inmediata
+        exportReport(lastOutput.content, downloadRequest.format, downloadRequest.baseName);
+
+        // Responder al usuario con un mensaje de confirmación
+        const simKey2 = `${conversation.id}:${userMsg.id}`;
+        if (simulatingRef.current === simKey2) return;
+        simulatingRef.current = simKey2;
+
+        const confirmMsgId = `m-${Date.now()}-assistant`;
+        addMessage(conversation.id, {
+          id: confirmMsgId,
+          role: "assistant",
+          content: `Tu archivo **${downloadRequest.baseName}.${downloadRequest.ext}** se está descargando ahora mismo. Si no inicia automáticamente, revisa la carpeta de descargas de tu navegador.`,
+          timestamp: new Date().toISOString(),
+          agentStatus: "completed",
+          steps: [],
+        });
+        setWorking(false);
+        simulatingRef.current = null;
+        return;
+      } else {
+        // No hay contenido previo para descargar — responder explicando
+        const simKey3 = `${conversation.id}:${userMsg.id}`;
+        if (simulatingRef.current === simKey3) return;
+        simulatingRef.current = simKey3;
+
+        const noContentMsgId = `m-${Date.now()}-assistant`;
+        addMessage(conversation.id, {
+          id: noContentMsgId,
+          role: "assistant",
+          content: `Aún no hay contenido generado en esta conversación para descargar como **${downloadRequest.ext.toUpperCase()}**. Primero pídeme que genere un reporte, análisis o documento, y luego podrás descargarlo en el formato que prefieras.`,
+          timestamp: new Date().toISOString(),
+          agentStatus: "completed",
+          steps: [],
+        });
+        setWorking(false);
+        simulatingRef.current = null;
+        return;
+      }
     }
 
     // Crear respuesta del asistente y empezar simulación con orquestador
@@ -839,6 +893,54 @@ function isVagueObjective(objective: string): boolean {
   // Se considera vago si es corto y contiene un marcador genérico, o si no tiene
   // un sustantivo/tema concreto (más de 4 palabras sin marcador).
   return hasVagueMarker && wordCount < 8;
+}
+
+// ==================== DETECCIÓN DE DESCARGA ====================
+// Detecta si el usuario está pidiendo descargar el contenido en un formato
+// específico. Soporta lenguaje natural en español e inglés.
+function detectDownloadRequest(message: string): { format: ExportFormat; ext: string; baseName: string } | null {
+  const lower = message.toLowerCase().trim();
+
+  // Patrones de solicitud de descarga
+  const downloadTriggers = [
+    /d[aá]me(lo)?\s+(en|como|el|un)/i,
+    /descarga(r|lo|me)?/i,
+    /export(a(r|lo|me)?)?/i,
+    /genera(r)?\s+(el|un|el\s+archivo)/i,
+    /quiero\s+(el|un)\s+(archivo|reporte|documento)/i,
+    /env[ií]a(me)?\s+(el|un)/i,
+    /download/i,
+    /guardar?\s+(como|en)/i,
+    /en\s+formato/i,
+    /como\s+(archivo|documento|reporte)/i,
+  ];
+
+  const isDownloadRequest = downloadTriggers.some((pattern) => pattern.test(lower));
+  if (!isDownloadRequest) return null;
+
+  // Detectar el formato solicitado
+  if (/\bpdf\b/.test(lower)) {
+    return { format: "pdf", ext: "pdf", baseName: "reporte" };
+  }
+  if (/\b(excel|xlsx|hoja\s+de\s+c[aá]lculo|spreadsheet)\b/.test(lower)) {
+    return { format: "excel", ext: "xlsx", baseName: "reporte" };
+  }
+  if (/\b(html|p[aá]gina\s+web|web)\b/.test(lower)) {
+    return { format: "html", ext: "html", baseName: "reporte" };
+  }
+  if (/\b(txt|texto\s+plano|plain\s+text)\b/.test(lower)) {
+    return { format: "txt", ext: "txt", baseName: "reporte" };
+  }
+  if (/\b(markdown|md|mark\s+down)\b/.test(lower)) {
+    return { format: "markdown", ext: "md", baseName: "reporte" };
+  }
+
+  // Si pide descarga sin especificar formato, usar PDF por defecto
+  if (isDownloadRequest) {
+    return { format: "pdf", ext: "pdf", baseName: "reporte" };
+  }
+
+  return null;
 }
 
 function getInitialMessageForCategory(category: string): string {

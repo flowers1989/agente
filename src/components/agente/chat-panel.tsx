@@ -340,8 +340,10 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             </div>
           )}
 
-        {/* Content */}
-        <p className="text-sm leading-relaxed text-foreground/90">{message.content}</p>
+        {/* Content — renderizado como Markdown para mostrar tablas, listas, negritas, código, etc. */}
+        {message.content && (
+          <Markdown content={message.content} />
+        )}
 
         {/* Steps (timeline discreto) */}
         {message.steps && message.steps.length > 0 && (
