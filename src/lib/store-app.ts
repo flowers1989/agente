@@ -31,6 +31,7 @@ interface AppState {
   route: Route;
   routeParams: Record<string, string>;
   sidebarCollapsed: boolean;
+  agentMode: "economy" | "quality";
 
   // Actions: Auth
   login: (email: string, name: string) => void;
@@ -49,6 +50,7 @@ interface AppState {
   toggleTheme: () => void;
   setTheme: (theme: "dark" | "light") => void;
   toggleSidebar: () => void;
+  toggleAgentMode: () => void;
   navigate: (route: Route, params?: Record<string, string>) => void;
 }
 
@@ -81,6 +83,7 @@ export const useAppStore = create<AppState>()(
       route: "landing",
       routeParams: {},
       sidebarCollapsed: false,
+      agentMode: "economy" as const,
 
       // Auth
       login: (email, name) => {
@@ -240,6 +243,7 @@ export const useAppStore = create<AppState>()(
       },
 
       toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
+      toggleAgentMode: () => set({ agentMode: get().agentMode === "economy" ? "quality" : "economy" }),
 
       navigate: (route, params = {}) => {
         const isAuth = get().isAuthenticated || !!get().user || get().onboarded;
@@ -268,6 +272,7 @@ export const useAppStore = create<AppState>()(
         onboarded: state.onboarded,
         theme: state.theme,
         sidebarCollapsed: state.sidebarCollapsed,
+        agentMode: state.agentMode,
       }),
     }
   )

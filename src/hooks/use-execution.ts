@@ -173,6 +173,7 @@ export function useExecution() {
 
     // Obtener el modelo por defecto del usuario
     const apiConfig = useAppStore.getState().apiConfig;
+    const agentMode = useAppStore.getState().agentMode ?? "economy";
     const defaultModel = apiConfig?.selectedModel || "kimi-k2.7-code";
     // Consideramos la API key válida si está presente y tiene longitud suficiente.
     // No exigimos testResult === "success" porque el estado puede no hidratarse
@@ -225,6 +226,7 @@ export function useExecution() {
           apiKey: apiConfig.apiKey,
           previousMessages: previousMessages.map((m) => ({ role: m.role, content: m.content.slice(0, 300) })),
           forceSimple: detection.isSimple && detection.confidence > 0.6,
+          mode: agentMode,
         },
         {
           onStart: () => {

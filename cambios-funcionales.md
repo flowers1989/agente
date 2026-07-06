@@ -97,15 +97,13 @@ Este documento detalla los cambios realizados en el repositorio `https://github.
 
 ## 🚧 Pendiente — Próximos Pasos
 
-### P1. Botón de Modo Economy / Quality en la UI *(alta prioridad)*
+### P1. Botón de Modo Economy / Quality en la UI ✅ COMPLETADO
 
-*   **Objetivo:** Un solo botón visible en el `ChatInput` o en el header de la conversación que permita al usuario cambiar entre modo **Rápido** (economy) y modo **Calidad** (quality) con un solo clic, sin terminología técnica.
-*   **Archivos a modificar:**
-    *   `src/lib/store-app.ts` — añadir campo `agentMode: "economy" | "quality"` al estado persistido y la acción `toggleAgentMode()`.
-    *   `src/lib/agents/stream-client.ts` — añadir campo `mode` al `StreamAgentParams` y pasarlo en el body del fetch.
-    *   `src/hooks/use-execution.ts` — leer `agentMode` del store y pasarlo a `streamAgentExecution`.
-    *   `src/components/agente/chat-panel.tsx` — añadir el botón de toggle en el `ChatInput`, con etiquetas amigables ("Rápido ⚡" / "Calidad ✨") y tooltip explicativo.
-*   **UX esperada:** El botón debe ser discreto (pequeño, en la barra del input), con un indicador visual claro del modo activo. Al hacer clic cambia instantáneamente y persiste entre sesiones.
+*   **Archivos modificados:**
+    *   `src/lib/store-app.ts` — campo `agentMode: "economy" | "quality"` persistido en localStorage, acción `toggleAgentMode()`.
+    *   `src/lib/agents/stream-client.ts` — campo `mode` en `StreamAgentParams`, enviado en el body del fetch.
+    *   `src/hooks/use-execution.ts` — lee `agentMode` del store y lo pasa a `streamAgentExecution`.
+    *   `src/components/agente/chat-panel.tsx` — botón en el header (⚡ Rápido / ✨ Calidad) y segundo indicador discreto bajo el textarea. Tooltip explicativo. Deshabilitado mientras el agente trabaja. Persiste entre sesiones.
 
 ### P2. Bucle de Atención con `todo.md` Dinámico
 

@@ -40,6 +40,7 @@ export interface StreamAgentParams {
   apiKey: string;
   previousMessages?: Array<{ role: "user" | "assistant"; content: string }>;
   forceSimple?: boolean;
+  mode?: "economy" | "quality";
   signal?: AbortSignal;
 }
 
@@ -56,6 +57,7 @@ export async function streamAgentExecution(params: StreamAgentParams, callbacks:
       userObjective: params.userObjective,
       previousMessages: params.previousMessages,
       forceSimple: params.forceSimple,
+      mode: params.mode ?? "economy",
     }),
     signal: params.signal,
   });

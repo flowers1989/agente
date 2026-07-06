@@ -19,6 +19,7 @@ import {
   Sparkles,
   Download,
   Eye,
+  Zap,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -49,6 +50,8 @@ export function ChatPanel() {
   const currentConversationId = useTaskStore((s) => s.currentConversationId);
   const { createConversation, sendMessage } = useTask();
   const user = useAppStore((s) => s.user);
+  const agentMode = useAppStore((s) => s.agentMode);
+  const toggleAgentMode = useAppStore((s) => s.toggleAgentMode);
   const isWorking = useExecutionStore((s) => s.isWorking);
 
   const [input, setInput] = useState("");
@@ -146,6 +149,8 @@ export function ChatPanel() {
           onKeyDown={handleKeyDown}
           textareaRef={textareaRef}
           disabled={isWorking}
+          agentMode={agentMode}
+          onToggleMode={toggleAgentMode}
         />
       </div>
     );
@@ -163,6 +168,25 @@ export function ChatPanel() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <IntegrationMenu />
+          {/* Botón de modo: Rápido / Calidad */}
+          <button
+            onClick={toggleAgentMode}
+            disabled={isWorking}
+            title={agentMode === "economy" ? "Modo Rápido: respuestas veloces y económicas. Clic para cambiar a Calidad." : "Modo Calidad: máxima precisión y razonamiento. Clic para cambiar a Rápido."}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all border",
+              agentMode === "economy"
+                ? "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                : "border-violet-500/50 text-violet-400 bg-violet-500/10 hover:bg-violet-500/20",
+              isWorking && "opacity-40 cursor-not-allowed"
+            )}
+          >
+            {agentMode === "economy" ? (
+              <><Zap className="size-3" /><span className="hidden sm:inline">Rápido</span></>
+            ) : (
+              <><Sparkles className="size-3" /><span className="hidden sm:inline">Calidad</span></>
+            )}
+          </button>
           {isWorking && (
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <span className="dot-anim inline-flex">
@@ -196,6 +220,8 @@ export function ChatPanel() {
         onKeyDown={handleKeyDown}
         textareaRef={textareaRef}
         disabled={isWorking}
+        agentMode={agentMode}
+        onToggleMode={toggleAgentMode}
       />
     </div>
   );
@@ -208,6 +234,8 @@ function ChatInput({
   onKeyDown,
   textareaRef,
   disabled,
+  agentMode,
+  onToggleMode,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -215,6 +243,8 @@ function ChatInput({
   onKeyDown: (e: React.KeyboardEvent) => void;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   disabled?: boolean;
+  agentMode?: "economy" | "quality";
+  onToggleMode?: () => void;
 }) {
   return (
     <div className="p-3 border-t border-border shrink-0">
@@ -239,9 +269,30 @@ function ChatInput({
             <ArrowUp className="size-3.5" />
           </Button>
         </div>
-        <p className="text-[10px] text-muted-foreground/60 text-center mt-2">
-          Enter para enviar · Shift+Enter para nueva línea
-        </p>
+        <div className="flex items-center justify-between mt-2 px-0.5">
+          <p className="text-[10px] text-muted-foreground/60">
+            Enter para enviar · Shift+Enter para nueva línea
+          </p>
+          {onToggleMode && (
+            <button
+              onClick={onToggleMode}
+              disabled={disabled}
+              className={cn(
+                "flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors",
+                agentMode === "quality"
+                  ? "text-violet-400 hover:text-violet-300"
+                  : "text-muted-foreground/60 hover:text-muted-foreground",
+                disabled && "opacity-40 cursor-not-allowed"
+              )}
+            >
+              {agentMode === "quality" ? (
+                <><Sparkles className="size-2.5" /> Calidad</>
+              ) : (
+                <><Zap className="size-2.5" /> Rápido</>
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
