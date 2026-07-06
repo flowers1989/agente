@@ -4,6 +4,7 @@ import { BaseAgent } from "./base-agent";
 import type { ExecutionPlan, ExecutionStep, Analysis, TaskCategory } from "../types";
 import { TASK_TEMPLATES, detectCategory, type StepTemplate } from "../mock-data";
 import { getAgentModel, type AgentModelKey } from "../config/model-routing";
+import { useMemoryStore } from "../memory/memory-store";
 
 // ==================== AGENTE 2: PLANIFICADOR ====================
 // Modelo: economy=deepseek-v4-flash / quality=qwen3.7-plus
@@ -26,7 +27,10 @@ export class PlannerAgent extends BaseAgent {
 
   async createPlan(analysis: Analysis, objective: string, conversationId: string): Promise<ExecutionPlan> {
     // 1. Recuperar análisis de memoria
-    const analysisFromMemory = this.retrieveFromMemory("working", `analysis:${conversationId}`);
+    this.retrieveFromMemory("working", `analysis:${conversationId}`);
+
+    // 1b. Recuperar contexto relevante de memoria episódica
+    const memoryContext = useMemoryStore.getState().getRelevantContext(objective);
 
     // 2. Detectar categoría de tarea
     const category = detectCategory(objective) as TaskCategory;
@@ -37,7 +41,7 @@ export class PlannerAgent extends BaseAgent {
     let totalEstimatedTime: number;
 
     try {
-      const dynamicPlan = await this.createPlanWithLLM(objective, analysis, category);
+      const dynamicPlan = await this.createPlanWithLLM(objective, analysis, category, memoryContext);
       steps = dynamicPlan.steps;
       totalEstimatedTime = dynamicPlan.totalEstimatedTime;
     } catch (error) {
@@ -70,9 +74,33 @@ export class PlannerAgent extends BaseAgent {
   private async createPlanWithLLM(
     objective: string,
     analysis: Analysis,
-    category: TaskCategory
+    category: TaskCategory,
+    memoryContext?: { similarTasks: Array<{ value: string; success?: boolean }>; learnedPatterns: Array<{ value: string }>; knownErrors: Array<{ value: string }> }
   ): Promise<{ steps: ExecutionStep[]; totalEstimatedTime: number }> {
     const toolsDescription = this.getAvailableToolsDescription(category);
+
+    // Construir sección de contexto de memoria si hay datos relevantes
+    const memorySection = memoryContext && (
+      memoryContext.similarTasks.length > 0 ||
+      memoryContext.learnedPatterns.length > 0 ||
+      memoryContext.knownErrors.length > 0
+    ) ? `
+Contexto de tareas anteriores (memoria episódica):
+${
+  memoryContext.similarTasks.length > 0
+    ? `- Tareas similares: ${memoryContext.similarTasks.map((t) => t.value.slice(0, 80)).join(" | ")}`
+    : ""
+}
+${
+  memoryContext.learnedPatterns.length > 0
+    ? `- Patrones aprendidos: ${memoryContext.learnedPatterns.map((p) => p.value.slice(0, 60)).join(" | ")}`
+    : ""
+}
+${
+  memoryContext.knownErrors.length > 0
+    ? `- Errores a evitar: ${memoryContext.knownErrors.map((e) => e.value.slice(0, 60)).join(" | ")}`
+    : ""
+}` : "";
 
     const prompt = `Eres un planificador experto. Crea un plan ejecutable para este objetivo del usuario.
 
@@ -82,7 +110,7 @@ Análisis previo:
 - Contexto: ${analysis.context}
 - Complejidad: ${analysis.complexity}
 - Entidades: ${analysis.entities.map((e) => `${e.type}:${e.value}`).join(", ")}
-- Restricciones: ${analysis.constraints.map((c) => c.description).join("; ")}
+- Restricciones: ${analysis.constraints.map((c) => c.description).join("; ")}${memorySection}
 
 Herramientas disponibles:
 ${toolsDescription}

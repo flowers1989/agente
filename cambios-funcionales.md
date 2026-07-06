@@ -36,7 +36,7 @@ Este documento detalla los cambios realizados en el repositorio `https://github.
 
 ---
 
-## ✅ Cambios Implementados (Fase 3 — Sesión actual)
+## ✅ Cambios Implementados (Fase 3 — Sesión 2)
 
 ### 6. Configuración Centralizada de Modelos (`model-routing.ts`)
 
@@ -95,9 +95,9 @@ Este documento detalla los cambios realizados en el repositorio `https://github.
 
 ---
 
-## 🚧 Pendiente — Próximos Pasos
+## ✅ Cambios Implementados (Fase 4 — Sesión 3)
 
-### P1. Botón de Modo Economy / Quality en la UI ✅ COMPLETADO
+### 11. Botón de Modo Economy / Quality en la UI ✅
 
 *   **Archivos modificados:**
     *   `src/lib/store-app.ts` — campo `agentMode: "economy" | "quality"` persistido en localStorage, acción `toggleAgentMode()`.
@@ -105,27 +105,66 @@ Este documento detalla los cambios realizados en el repositorio `https://github.
     *   `src/hooks/use-execution.ts` — lee `agentMode` del store y lo pasa a `streamAgentExecution`.
     *   `src/components/agente/chat-panel.tsx` — botón en el header (⚡ Rápido / ✨ Calidad) y segundo indicador discreto bajo el textarea. Tooltip explicativo. Deshabilitado mientras el agente trabaja. Persiste entre sesiones.
 
-### P2. Bucle de Atención con `todo.md` Dinámico
+### 12. Bucle de Atención con `todo.md` Dinámico ✅
 
-*   Desarrollar la lógica para que el agente mantenga un `todo.md` interno, planifique pasos, reflexione sobre resultados y ajuste su estrategia en tiempo real.
+*   **Archivo:** `src/lib/agents/todo-manager.ts` *(nuevo)*
+*   Clase `TodoManager` con estados por paso: `pending → in_progress → completed/failed/skipped/retrying`.
+*   Genera reflexiones automáticas al completar cada paso y ajustes de estrategia al fallar.
+*   Serializa el estado como Markdown interno (`toMarkdown()`).
+*   Integrado en `orchestrator.ts`: `startStep()`, `completeStep()`, `failStep()` llamados en cada paso del bucle.
 
-### P3. Memoria Episódica Persistente
+### 13. Memoria Episódica Mejorada ✅
 
-*   Integrar base de datos para almacenar memoria a largo plazo entre sesiones (resultados de herramientas, aprendizajes, contexto de conversaciones anteriores).
+*   **Archivos:** `src/lib/memory/memory-store.ts`, `src/lib/agents/planner-agent.ts`
+*   `getRelevantContext()` mejorado con scoring por palabras clave (en lugar de coincidencia simple).
+*   Patrones semánticos ordenados por confianza; errores episódicos ordenados por recencia.
+*   Nuevas funciones: `exportMemory()` (backup JSON) y `getStats()` (tasa de éxito, top patrones, tareas recientes).
+*   El `PlannerAgent` ahora inyecta el contexto de memoria episódica en el prompt del LLM (tareas similares, patrones aprendidos, errores a evitar).
 
-### P4. Funcionalidades Completas de Conectores
+### 14. Acciones de Escritura en Conectores ✅
 
-*   Implementar acciones de escritura (crear, actualizar, eliminar) para Google Drive, Gmail, Slack, GitHub, Notion.
-*   Agregar conectores adicionales: Trello, Asana, Jira, Salesforce.
+*   **Archivo:** `src/lib/integrations/ConnectorRegistry.ts`
+*   **Google Drive:** añadidas `createFile`, `updateFile`, `deleteFile`, `createFolder`.
+*   **GitHub:** añadidas `closeIssue`, `listIssues`, `createFile` (commit directo), `createPR`.
+*   **Notion:** añadidas `getPage`, `updatePage`, `appendBlocks`, `deletePage`, `searchPages`.
 
-### P5. Herramientas Avanzadas
+### 15. Herramientas Avanzadas en el ToolRegistry ✅
 
-*   Generación de diapositivas (PPT/PDF).
-*   Análisis de video/audio.
-*   Generación de imágenes con IA.
-*   Programación de tareas recurrentes (cron).
+*   **Archivo:** `src/lib/agents/tool-registry.ts`
+*   `Visualization` — genera código Python matplotlib via LLM y lo ejecuta en el sandbox.
+*   `Report Generation` — genera reportes Markdown estructurados via LLM y los guarda en working memory.
+*   `Image Generation` — llama a `/api/media/generate-image` con fallback descriptivo.
+*   `Slide Generation` — genera contenido de presentaciones via LLM (portada, agenda, contenido, conclusiones).
+*   `Cron/Schedule` — registra tareas programadas en memoria semántica (create/list).
+*   `Webhook Listener` — registra webhooks activos en memoria semántica.
 
-### P6. Pruebas y Documentación
+---
 
-*   Pruebas unitarias, de integración y e2e para sandbox y conectores.
-*   Documentación de usuario y de desarrollador.
+## 🚧 Pendiente — Próximos Pasos
+
+### P1. Pruebas y Documentación
+
+*   Pruebas unitarias para `TodoManager`, `memory-store` y `tool-registry`.
+*   Pruebas de integración para el flujo completo orquestador → agentes → herramientas.
+*   Documentación de usuario (cómo usar los modos, conectores, herramientas).
+*   Documentación de desarrollador (arquitectura, cómo agregar nuevos conectores/herramientas).
+
+### P2. Endpoint `/api/media/generate-image`
+
+*   Implementar el endpoint real para que `Image Generation` funcione en producción.
+*   Integrar con un proveedor de generación de imágenes (OpenAI DALL-E, Stability AI, etc.).
+
+### P3. Persistencia de Memoria en Base de Datos
+
+*   Migrar la memoria episódica y semántica de `localStorage` a una base de datos (PostgreSQL/Prisma).
+*   Permite que la memoria persista entre dispositivos y usuarios.
+
+### P4. Conectores Adicionales
+
+*   Implementar conectores funcionales para: Trello, Asana, Jira, Salesforce, HubSpot.
+*   Agregar acciones de escritura a Gmail (archivar, mover, eliminar) y Slack (reaccionar, editar).
+
+### P5. Ejecución Real de Cron Jobs
+
+*   Conectar `Cron/Schedule` con un sistema de ejecución real (node-cron, BullMQ, o similar).
+*   Panel de administración de tareas programadas en la UI de Settings.

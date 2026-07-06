@@ -13,6 +13,7 @@ import { TASK_TEMPLATES, detectCategory } from "../mock-data";
 import type { ToolExecutionResult } from "./tool-registry";
 import { getAdapter } from "./opencode-adapter";
 import { type AgentMode, ESTIMATED_COST_PER_TASK } from "../config/model-routing";
+import { createTodoManager, type TodoManager } from "./todo-manager";
 
 // ==================== ORQUESTADOR DE AGENTES ====================
 // Coordina el flujo completo de los 7 agentes:
@@ -71,6 +72,7 @@ export class AgentOrchestrator {
   private reporter: ReporterAgent;
   private monitor: MonitorAgent;
   private adapter = getAdapter();
+  private todoManager: TodoManager = createTodoManager();
 
   constructor() {
     this.analyzer = new AnalyzerAgent();
@@ -134,6 +136,10 @@ export class AgentOrchestrator {
       const plan = await this.planner.createPlan(analysis, userObjective, conversationId);
       callbacks.onPlanCreated?.(plan, category);
 
+      // Inicializar el bucle de atención (todo.md dinámico)
+      this.todoManager = createTodoManager();
+      this.todoManager.initialize(conversationId, userObjective, plan);
+
       // Crear objeto Execution
       const execution: Execution = {
         id: `exec-${Date.now()}`,
@@ -181,6 +187,7 @@ export class AgentOrchestrator {
         // Determinar el agentStatus basado en el agente que ejecuta este paso
         const agentStatus = this.getAgentStatusForStep(step);
         callbacks.onStepStarted?.(step, agentStatus);
+        this.todoManager.startStep(step.id);
 
         // Emitir logs progresivamente (simulado)
         const template = TASK_TEMPLATES[category];
@@ -201,6 +208,7 @@ export class AgentOrchestrator {
           step.result = result.result || "";
           step.output = result.output;
           step.completedAt = new Date().toISOString();
+          this.todoManager.completeStep(step.id, result.result || "");
 
           callbacks.onStepCompleted?.(step, result.result || "", result.output);
         } else {
@@ -209,6 +217,7 @@ export class AgentOrchestrator {
           step.completedAt = new Date().toISOString();
 
           execution.errors.push(result.error || "Error");
+          this.todoManager.failStep(step.id, result.error || "Error");
           callbacks.onStepFailed?.(step, result.error || "Error");
 
           // Verificar si se puede reintentar solo en errores
@@ -217,6 +226,7 @@ export class AgentOrchestrator {
 
           if (lastVerification.action === "retry") {
             // Reintentar
+            this.todoManager.retryStep(step.id);
             step.status = "running";
             const retryResult = await this.executor.executeStep(step, conversationId);
             if (retryResult.success) {
@@ -239,6 +249,9 @@ export class AgentOrchestrator {
             break;
           }
           // Si action === "skip", continuamos al siguiente paso
+          if (lastVerification.action === "skip") {
+            this.todoManager.skipStep(step.id, lastVerification.recommendation || "Verificador indicó omitir");
+          }
         }
       }
 
@@ -262,6 +275,13 @@ export class AgentOrchestrator {
         execution.completedAt = new Date().toISOString();
       }
 
+      // Finalizar el bucle de atención
+      const todoFinal = this.todoManager.finalize(execution.status !== "failed");
+      const todoProgress = this.todoManager.getProgress();
+      // Guardar el todo.md en memoria de trabajo para referencia del reportero
+      if (todoFinal) {
+        useMemoryStore.getState().store("working", `todo:${conversationId}`, this.todoManager.toMarkdown(), { conversationId, tags: ["todo", "progress"] });
+      }
       // ========== FASE 5: OPTIMIZACIÓN (Optimizador) ==========
       // Optimizador (economy): minimax-m3 | (quality): deepseek-v4-pro
       // Omitido en modo economy para reducir tokens; activo en modo quality.

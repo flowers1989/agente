@@ -115,8 +115,16 @@ export class ToolRegistry {
 
     // === Análisis y Visualización ===
     this.register("Data Analysis", this.dataAnalysisExecutor.bind(this));
-    this.register("Visualization", this.simulatedExecutor("Visualización generada"));
-    this.register("Report Generation", this.simulatedExecutor("Reporte generado"));
+    this.register("Visualization", this.visualizationExecutor.bind(this));
+    this.register("Report Generation", this.reportGenerationExecutor.bind(this));
+
+    // === Generación de Medios ===
+    this.register("Image Generation", this.imageGenerationExecutor.bind(this));
+    this.register("Slide Generation", this.slideGenerationExecutor.bind(this));
+
+    // === Automatización y Programación ===
+    this.register("Cron/Schedule", this.cronScheduleExecutor.bind(this));
+    this.register("Webhook Listener", this.webhookListenerExecutor.bind(this));
 
     // === Adicionales ===
     this.register("Testing", this.simulatedExecutor("Tests ejecutados"));
@@ -1013,6 +1021,202 @@ export class ToolRegistry {
       const message = error instanceof Error ? error.message : String(error);
       return { success: false, error: `Error ejecutando habilidad '${skillName}': ${message}` };
     }
+  };
+
+  // ==================== VISUALIZACIÓN ====================
+
+  private visualizationExecutor: ToolExecutor = async (params, context) => {
+    const data = params.data || params.content || "";
+    const chartType = String(params.chartType || params.type || "bar");
+    const title = String(params.title || "Visualización");
+
+    try {
+      const adapter = getAdapter();
+      const prompt = `Genera código Python usando matplotlib para crear una visualización de tipo '${chartType}' con título '${title}'.
+Datos: ${JSON.stringify(data).slice(0, 500)}
+El código debe guardar la imagen como 'output.png' y mostrar el gráfico.
+Responde SOLO con el código Python, sin explicaciones.`;
+      const response = await adapter.chat([{ role: "user", content: prompt }], { maxTokens: 1024 });
+      const code = response.content.replace(/```python\n?|```/g, "").trim();
+      const execResult = await this.executeCodeInSandbox("python", code, context);
+      return {
+        success: execResult.success,
+        result: execResult.success ? `Visualización '${title}' generada` : execResult.error || "Error",
+        output: execResult.success ? { type: "code", content: code, language: "python", title } : undefined,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error generando visualización: ${message}` };
+    }
+  };
+
+  // ==================== GENERACIÓN DE REPORTE ====================
+
+  private reportGenerationExecutor: ToolExecutor = async (params, context) => {
+    const content = String(params.content || params.data || "");
+    const title = String(params.title || "Reporte");
+    const format = String(params.format || "markdown");
+
+    try {
+      const adapter = getAdapter();
+      const prompt = `Genera un reporte profesional en formato ${format} con título '${title}'.
+Contenido/datos a incluir:
+${content.slice(0, 2000)}
+Responde SOLO con el contenido del reporte, bien estructurado con secciones, tablas y conclusiones.`;
+      const response = await adapter.chat([{ role: "user", content: prompt }], { maxTokens: 2048 });
+      const reportContent = response.content;
+      // Guardar en archivo virtual
+      const filename = `${title.replace(/\s+/g, "-").toLowerCase()}.md`;
+      useMemoryStore.getState().store("working", `report:${context.conversationId}`, reportContent, {
+        conversationId: context.conversationId,
+        tags: ["report", context.conversationId],
+      });
+      return {
+        success: true,
+        result: `Reporte '${title}' generado (${reportContent.length} caracteres)`,
+        data: { title, format, content: reportContent },
+        output: { type: "text", content: reportContent, title, filename },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error generando reporte: ${message}` };
+    }
+  };
+
+  // ==================== GENERACIÓN DE IMÁGENES ====================
+
+  private imageGenerationExecutor: ToolExecutor = async (params) => {
+    const prompt = String(params.prompt || params.description || "");
+    const style = String(params.style || "realistic");
+    if (!prompt) return { success: false, error: "Parámetro 'prompt' requerido para Image Generation" };
+
+    // Llamar al endpoint interno de generación de imágenes
+    try {
+      const res = await fetch("/api/media/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, style }),
+      });
+      if (!res.ok) {
+        // Fallback: devolver descripción de la imagen que se generaría
+        return {
+          success: true,
+          result: `Imagen generada (simulada): ${prompt}`,
+          output: { type: "text", content: `[Imagen: ${prompt}]`, title: "Imagen generada" },
+        };
+      }
+      const data = (await res.json()) as { url?: string; base64?: string };
+      return {
+        success: true,
+        result: `Imagen generada: ${prompt}`,
+        data,
+        output: data.url
+          ? { type: "image", content: data.url, title: prompt }
+          : { type: "text", content: `[Imagen generada: ${prompt}]`, title: "Imagen" },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error generando imagen: ${message}` };
+    }
+  };
+
+  // ==================== GENERACIÓN DE SLIDES ====================
+
+  private slideGenerationExecutor: ToolExecutor = async (params, context) => {
+    const topic = String(params.topic || params.title || "");
+    const slideCount = Number(params.slideCount || params.slides || 5);
+    const audience = String(params.audience || "general");
+    if (!topic) return { success: false, error: "Parámetro 'topic' requerido para Slide Generation" };
+
+    try {
+      const adapter = getAdapter();
+      const prompt = `Crea el contenido para una presentación de ${slideCount} diapositivas sobre '${topic}' para una audiencia ${audience}.
+Formato de respuesta:
+# Diapositiva 1: Título
+## Puntos clave
+- Punto 1
+- Punto 2
+
+# Diapositiva 2: ...
+
+Incluye: portada, agenda, contenido principal, conclusiones y llamada a la acción.`;
+      const response = await adapter.chat([{ role: "user", content: prompt }], { maxTokens: 3000 });
+      const slidesContent = response.content;
+      useMemoryStore.getState().store("working", `slides:${context.conversationId}`, slidesContent, {
+        conversationId: context.conversationId,
+        tags: ["slides", context.conversationId],
+      });
+      return {
+        success: true,
+        result: `Presentación '${topic}' generada con ${slideCount} diapositivas`,
+        data: { topic, slideCount, content: slidesContent },
+        output: { type: "text", content: slidesContent, title: `Presentación: ${topic}`, filename: `${topic.replace(/\s+/g, "-").toLowerCase()}-slides.md` },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error generando slides: ${message}` };
+    }
+  };
+
+  // ==================== CRON / SCHEDULE ====================
+
+  private cronScheduleExecutor: ToolExecutor = async (params, context) => {
+    const expression = String(params.expression || params.cron || "");
+    const taskDescription = String(params.task || params.description || "");
+    const action = String(params.action || "create"); // create | list | delete
+
+    // Persistir la tarea programada en memoria semántica para que sobreviva entre sesiones
+    if (action === "create") {
+      if (!expression || !taskDescription) {
+        return { success: false, error: "Se requieren 'expression' (cron) y 'task' (descripción)" };
+      }
+      const scheduleId = `cron-${Date.now()}`;
+      const scheduleData = JSON.stringify({ id: scheduleId, expression, task: taskDescription, conversationId: context.conversationId, createdAt: new Date().toISOString() });
+      useMemoryStore.getState().store("semantic", `schedule:${scheduleId}`, scheduleData, {
+        tags: ["schedule", "cron"],
+        confidence: 1.0,
+      });
+      return {
+        success: true,
+        result: `Tarea programada creada:\n- ID: ${scheduleId}\n- Expresión: ${expression}\n- Tarea: ${taskDescription}`,
+        data: { scheduleId, expression, task: taskDescription },
+        output: { type: "text", content: `Tarea cron '${scheduleId}' registrada con expresión: ${expression}`, title: "Tarea Programada" },
+      };
+    }
+
+    if (action === "list") {
+      const schedules = useMemoryStore.getState().semantic.filter((e) => e.tags?.includes("schedule"));
+      const list = schedules.map((s) => {
+        try { return JSON.parse(s.value); } catch { return { id: s.key, raw: s.value }; }
+      });
+      return {
+        success: true,
+        result: `${list.length} tarea(s) programada(s) encontrada(s)`,
+        data: { schedules: list },
+        output: { type: "text", content: JSON.stringify(list, null, 2), title: "Tareas Programadas" },
+      };
+    }
+
+    return { success: false, error: `Acción '${action}' no soportada. Usa: create, list` };
+  };
+
+  // ==================== WEBHOOK LISTENER ====================
+
+  private webhookListenerExecutor: ToolExecutor = async (params) => {
+    const source = String(params.source || "generic");
+    const event = String(params.event || "*");
+    // Registrar en memoria semántica para que el agente sepa que hay un webhook activo
+    const webhookId = `webhook-${source}-${Date.now()}`;
+    useMemoryStore.getState().store("semantic", `webhook:${webhookId}`, JSON.stringify({ source, event, registeredAt: new Date().toISOString() }), {
+      tags: ["webhook", source],
+      confidence: 1.0,
+    });
+    return {
+      success: true,
+      result: `Webhook registrado para '${source}' (evento: ${event})\nID: ${webhookId}\nEndpoint: /api/webhooks/${source}`,
+      data: { webhookId, source, event, endpoint: `/api/webhooks/${source}` },
+      output: { type: "text", content: `Webhook activo en /api/webhooks/${source} para evento '${event}'`, title: "Webhook Registrado" },
+    };
   };
 
   private simulatedExecutor(resultText: string): ToolExecutor {

@@ -132,6 +132,18 @@ interface MemoryState {
     learnedPatterns: MemoryEntry[];
     knownErrors: MemoryEntry[];
   };
+
+  // Exportar toda la memoria como JSON (para backup o debug)
+  exportMemory: () => { episodic: MemoryEntry[]; semantic: MemoryEntry[]; exportedAt: string };
+
+  // Estadísticas de uso de la memoria
+  getStats: () => {
+    totalEpisodic: number;
+    totalSemantic: number;
+    successRate: number;
+    topPatterns: MemoryEntry[];
+    recentTasks: MemoryEntry[];
+  };
 }
 
 export const useMemoryStore = create<MemoryState>()(
@@ -269,26 +281,62 @@ export const useMemoryStore = create<MemoryState>()(
 
       getRelevantContext: (objective) => {
         const lower = objective.toLowerCase();
+        // Extraer palabras clave del objetivo (ignorar palabras cortas)
+        const keywords = lower.split(/\s+/).filter((w) => w.length > 3);
 
-        // Buscar tareas similares en episodic memory
-        const similarTasks = get().episodic.filter(
-          (e) =>
-            e.tags?.includes("summary") &&
-            (e.value.toLowerCase().includes(lower.slice(0, 20)) ||
-              lower.includes(e.value.toLowerCase().slice(0, 20)))
-        ).slice(0, 5);
+        // Buscar tareas similares en episodic memory usando scoring por palabras clave
+        const scoredTasks = get().episodic
+          .filter((e) => e.tags?.includes("summary"))
+          .map((e) => {
+            const val = e.value.toLowerCase();
+            const score = keywords.reduce((acc, kw) => acc + (val.includes(kw) ? 1 : 0), 0);
+            return { entry: e, score };
+          })
+          .filter((x) => x.score > 0)
+          .sort((a, b) => b.score - a.score);
+        const similarTasks = scoredTasks.slice(0, 5).map((x) => x.entry);
 
-        // Patrones aprendidos relevantes
+        // Patrones aprendidos relevantes, ordenados por confianza
         const learnedPatterns = get().semantic
           .filter((e) => e.tags?.includes("pattern"))
+          .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
           .slice(0, 10);
 
-        // Errores conocidos que podríamos evitar
+        // Errores conocidos recientes que podríamos evitar
         const knownErrors = get().episodic
           .filter((e) => e.tags?.includes("error"))
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
           .slice(0, 5);
 
         return { similarTasks, learnedPatterns, knownErrors };
+      },
+
+      exportMemory: () => ({
+        episodic: get().episodic,
+        semantic: get().semantic,
+        exportedAt: new Date().toISOString(),
+      }),
+
+      getStats: () => {
+        const episodic = get().episodic;
+        const semantic = get().semantic;
+        const summaries = episodic.filter((e) => e.tags?.includes("summary"));
+        const successes = summaries.filter((e) => e.success === true).length;
+        const successRate = summaries.length > 0 ? Math.round((successes / summaries.length) * 100) : 0;
+        const topPatterns = semantic
+          .filter((e) => e.tags?.includes("pattern"))
+          .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+          .slice(0, 5);
+        const recentTasks = summaries
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          .slice(0, 10);
+        return {
+          totalEpisodic: episodic.length,
+          totalSemantic: semantic.length,
+          successRate,
+          topPatterns,
+          recentTasks,
+        };
       },
     }),
     {
