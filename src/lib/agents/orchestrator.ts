@@ -12,6 +12,7 @@ import { useMemoryStore } from "../memory/memory-store";
 import { TASK_TEMPLATES, detectCategory } from "../mock-data";
 import type { ToolExecutionResult } from "./tool-registry";
 import { getAdapter } from "./opencode-adapter";
+import { type AgentMode, ESTIMATED_COST_PER_TASK } from "../config/model-routing";
 
 // ==================== ORQUESTADOR DE AGENTES ====================
 // Coordina el flujo completo de los 7 agentes:
@@ -25,7 +26,9 @@ import { getAdapter } from "./opencode-adapter";
 // 7. Monitor → monitorea todo el tiempo, detecta anomalías
 //
 // El usuario SOLO VE "Trabajando..." - los 7 agentes son invisibles.
-// Internamente, cada agente usa su modelo OpenCode Go asignado.
+// Internamente, cada agente usa su modelo OpenCode Go resuelto desde model-routing.ts.
+// Modo "economy" (default): modelos rápidos y económicos.
+// Modo "quality": modelos de alta calidad para tareas complejas.
 
 export interface OrchestratorCallbacks {
   onAnalysisComplete?: (analysis: Analysis) => void;
@@ -79,12 +82,30 @@ export class AgentOrchestrator {
     this.monitor = new MonitorAgent();
   }
 
+  /**
+   * Propaga el modo de ejecución a todos los agentes del sistema.
+   * "economy" (default): modelos rápidos y económicos.
+   * "quality": modelos de alta calidad para tareas complejas.
+   */
+  setMode(mode: AgentMode): void {
+    this.analyzer.setMode(mode);
+    this.planner.setMode(mode);
+    this.executor.setMode(mode);
+    this.verifier.setMode(mode);
+    this.optimizer.setMode(mode);
+    this.reporter.setMode(mode);
+    this.monitor.setMode(mode);
+  }
+
   async executeTask(
     objective: string,
     conversationId: string,
     callbacks: OrchestratorCallbacks,
-    originalObjective?: string
+    originalObjective?: string,
+    mode: AgentMode = "economy"
   ): Promise<OrchestratorResult> {
+    // Propagar el modo a todos los agentes antes de iniciar la ejecución
+    this.setMode(mode);
     // El objetivo real del usuario se usa para detectar categoría y generar queries.
     // `objective` puede estar enriquecido con contexto previo de la conversación.
     const userObjective = originalObjective || objective;
@@ -99,12 +120,12 @@ export class AgentOrchestrator {
       );
 
       // ========== FASE 1: ANÁLISIS (Analizador) ==========
-      // Modelo: DeepSeek V4 Flash
+      // Modelo (economy): deepseek-v4-flash | (quality): qwen3.7-plus
       const analysis = await this.analyzer.analyze(objective, conversationId);
       callbacks.onAnalysisComplete?.(analysis);
 
       // ========== FASE 2: PLANIFICACIÓN (Planificador) ==========
-      // Modelo: Qwen3.7 Plus
+      // Modelo (economy): deepseek-v4-flash | (quality): qwen3.7-plus
       // Usar userObjective para detectar la categoría real de la petición actual,
       // no el contextPrompt enriquecido con mensajes previos.
       const category = detectCategory(userObjective) as TaskCategory;
@@ -133,14 +154,14 @@ export class AgentOrchestrator {
       this.adapter.resetUsage();
 
       // ========== INICIAR MONITOREO (Monitor) ==========
-      // Modelo: MiMo-V2.5 - monitorea en background
+      // Modelo (economy/quality): mimo-v2.5 - monitorea en background
       this.monitor.startMonitoring(execution, (metrics, anomalies) => {
         callbacks.onMetricsUpdate?.(metrics, anomalies);
       });
 
       // ========== FASE 3: EJECUCIÓN (Ejecutor + Verificador) ==========
-      // Modelo Ejecutor: DeepSeek V4 Flash
-      // Modelo Verificador: GLM-5.2
+      // Ejecutor  (economy): deepseek-v4-flash | (quality): kimi-k2.7-code
+      // Verificador (economy): deepseek-v4-flash | (quality): glm-5.1
       let lastVerification: VerificationResult = {
         isValid: true,
         errors: [],
@@ -242,7 +263,8 @@ export class AgentOrchestrator {
       }
 
       // ========== FASE 5: OPTIMIZACIÓN (Optimizador) ==========
-      // Omitido en modo económico para reducir tokens. Se puede reactivar si se necesita.
+      // Optimizador (economy): minimax-m3 | (quality): deepseek-v4-pro
+      // Omitido en modo economy para reducir tokens; activo en modo quality.
       const optimizations: OptimizationResult = {
         suggestions: [],
         savings: { timeReduction: "0s", costReduction: "$0.00" },
@@ -250,7 +272,7 @@ export class AgentOrchestrator {
       callbacks.onOptimizationSuggestions?.(optimizations);
 
       // ========== FASE 6: REPORTE (Reportero) ==========
-      // Modelo: MiniMax M3
+      // Modelo (economy): minimax-m3 | (quality): qwen3.6-plus
       const report = await this.reporter.generateReport(execution, conversationId, category);
       callbacks.onReportGenerated?.(report);
 

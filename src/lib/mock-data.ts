@@ -19,6 +19,8 @@ export const AI_MODELS: AIModel[] = [
 
 // ==================== 7 AGENTES DEL SISTEMA ====================
 // Cada agente tiene su modelo OpenCode Go ideal asignado (según AGENTES.DEL.SISTEMA.md)
+// NOTA: modelId = modo economy (default), alternativeModelId = modo quality.
+// El modelo activo en runtime lo resuelve getAgentModel() desde src/lib/config/model-routing.ts.
 export const AGENTS: Record<AgentType, AgentConfig> = {
   analyzer: {
     type: "analyzer",
@@ -30,8 +32,8 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
       "Detectar contexto",
       "Evaluar complejidad",
     ],
-    modelId: "deepseek-v4-flash",
-    alternativeModelId: "mimo-v2.5",
+    modelId: "deepseek-v4-flash",       // economy
+    alternativeModelId: "qwen3.7-plus",  // quality
     speed: 5,
     cost: 5,
     quality: 4,
@@ -61,8 +63,8 @@ Siempre responde en JSON con la estructura:
       "Estimar recursos (tiempo, costo)",
       "Optimizar el orden de ejecución",
     ],
-    modelId: "deepseek-v4-flash",
-    alternativeModelId: "mimo-v2.5",
+    modelId: "deepseek-v4-flash",       // economy
+    alternativeModelId: "qwen3.7-plus",  // quality
     speed: 4,
     cost: 4,
     quality: 5,
@@ -101,8 +103,8 @@ Siempre responde en JSON con la estructura:
       "Guardar resultado en memoria",
       "Emitir evento al frontend",
     ],
-    modelId: "deepseek-v4-flash",
-    alternativeModelId: "mimo-v2.5",
+    modelId: "deepseek-v4-flash",        // economy
+    alternativeModelId: "kimi-k2.7-code", // quality (especializado en coding)
     speed: 5,
     cost: 5,
     quality: 4,
@@ -125,8 +127,8 @@ Si hay error, notificar al Verificador para decidir si reintentar.`,
       "Decidir acción: retry, skip, fail",
       "Retornar recomendación",
     ],
-    modelId: "deepseek-v4-flash",
-    alternativeModelId: "minimax-m3",
+    modelId: "deepseek-v4-flash",      // economy
+    alternativeModelId: "glm-5.1",      // quality (razonamiento avanzado, 203K ctx)
     speed: 4,
     cost: 3,
     quality: 5,
@@ -162,8 +164,8 @@ Siempre responde en JSON:
       "Generar sugerencias de optimización",
       "Estimar ahorros (tiempo, costo)",
     ],
-    modelId: "minimax-m3",
-    alternativeModelId: "mimo-v2.5",
+    modelId: "minimax-m3",              // economy
+    alternativeModelId: "deepseek-v4-pro", // quality (1M ctx, razonamiento complejo)
     speed: 4,
     cost: 5,
     quality: 4,
@@ -200,8 +202,8 @@ Siempre responde en JSON:
       "Crear visualizaciones",
       "Generar documento profesional",
     ],
-    modelId: "minimax-m3",
-    alternativeModelId: "deepseek-v4-flash",
+    modelId: "minimax-m3",             // economy
+    alternativeModelId: "qwen3.6-plus", // quality (calidad de escritura superior)
     speed: 4,
     cost: 3,
     quality: 5,
@@ -254,13 +256,24 @@ export const AGENT_LIST: AgentConfig[] = [
   AGENTS.monitor,
 ];
 
-// Tabla de agentes → modelo asignado
+// Tabla de agentes → modelo asignado (fuente de verdad: src/lib/config/model-routing.ts)
 export const AGENT_MODEL_ASSIGNMENTS = [
-  { agent: "Analizador", model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", reason: "Rápido, económico, extracción de info" },
-  { agent: "Planificador", model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", reason: "Razonamiento y planificación económico" },
-  { agent: "Verificador", model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", reason: "Análisis rápido y económico" },
-  { agent: "Reportero", model: "MiniMax M3", modelId: "minimax-m3", reason: "Generación de contenido económica" },
-  { agent: "Monitor", model: "MiMo-V2.5", modelId: "mimo-v2.5", reason: "Ultra rápido, tiempo real" },
+  // ── Modo Economy (default) ──────────────────────────────────────────────────
+  { agent: "Analizador",   model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", mode: "economy", reason: "Rápido, económico, extracción de info" },
+  { agent: "Planificador", model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", mode: "economy", reason: "Planificación básica, bajo costo" },
+  { agent: "Ejecutor",     model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", mode: "economy", reason: "Código simple, bajo costo" },
+  { agent: "Verificador",  model: "DeepSeek V4 Flash", modelId: "deepseek-v4-flash", mode: "economy", reason: "Verificación básica, bajo costo" },
+  { agent: "Optimizador",  model: "MiniMax M3",        modelId: "minimax-m3",        mode: "economy", reason: "Análisis básico, muy económico" },
+  { agent: "Reportero",    model: "MiniMax M3",        modelId: "minimax-m3",        mode: "economy", reason: "Generación de contenido económica" },
+  { agent: "Monitor",      model: "MiMo-V2.5",         modelId: "mimo-v2.5",         mode: "economy", reason: "Ultra rápido, tiempo real" },
+  // ── Modo Quality ────────────────────────────────────────────────────────────
+  { agent: "Analizador",   model: "Qwen3.7 Plus",    modelId: "qwen3.7-plus",    mode: "quality", reason: "Mejor comprensión semántica" },
+  { agent: "Planificador", model: "Qwen3.7 Plus",    modelId: "qwen3.7-plus",    mode: "quality", reason: "Razonamiento de alto nivel" },
+  { agent: "Ejecutor",     model: "Kimi K2.7 Code",  modelId: "kimi-k2.7-code",  mode: "quality", reason: "Modelo especializado en coding" },
+  { agent: "Verificador",  model: "GLM-5.1",         modelId: "glm-5.1",         mode: "quality", reason: "Razonamiento avanzado, 203K contexto" },
+  { agent: "Optimizador",  model: "DeepSeek V4 Pro", modelId: "deepseek-v4-pro", mode: "quality", reason: "1M contexto, razonamiento complejo" },
+  { agent: "Reportero",    model: "Qwen3.6 Plus",    modelId: "qwen3.6-plus",    mode: "quality", reason: "Calidad de escritura superior" },
+  { agent: "Monitor",      model: "MiMo-V2.5",       modelId: "mimo-v2.5",       mode: "quality", reason: "Suficiente para monitoreo" },
 ];
 
 // ==================== 56 HERRAMIENTAS (16 categorías) ====================

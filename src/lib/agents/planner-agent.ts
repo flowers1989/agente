@@ -3,9 +3,11 @@
 import { BaseAgent } from "./base-agent";
 import type { ExecutionPlan, ExecutionStep, Analysis, TaskCategory } from "../types";
 import { TASK_TEMPLATES, detectCategory, type StepTemplate } from "../mock-data";
+import { getAgentModel, type AgentModelKey } from "../config/model-routing";
 
 // ==================== AGENTE 2: PLANIFICADOR ====================
-// Modelo: Qwen3.7 Plus (razonamiento, planificación)
+// Modelo: economy=deepseek-v4-flash / quality=qwen3.7-plus
+// Fuente de verdad: src/lib/config/model-routing.ts
 //
 // Responsabilidad:
 // - Descomponer el objetivo en pasos ejecutables
@@ -149,7 +151,7 @@ Reglas:
         ? (step.produces as (typeof validProduces)[number])
         : "output",
       agent: agentForTool(step.tool),
-      modelUsed: this.getModelForAgent(agentForTool(step.tool)),
+      modelUsed: getAgentModel(agentForTool(step.tool) as AgentModelKey),
       dependencies: step.dependencies || (i > 0 ? [i] : []),
       duration: step.estimatedTime,
     }));
@@ -172,7 +174,7 @@ Reglas:
       logs: [],
       produces: stepTemplate.produces,
       agent: stepTemplate.agent,
-      modelUsed: this.getModelForAgent(stepTemplate.agent),
+      modelUsed: getAgentModel(stepTemplate.agent as AgentModelKey),
       dependencies: i > 0 ? [i] : [],
     };
   }
@@ -249,20 +251,6 @@ Reglas:
       Deployment: "executor",
     };
     return map[toolName] || "executor";
-  }
-
-  // Cada agente tiene su modelo OpenCode Go ideal asignado
-  private getModelForAgent(agent: StepTemplate["agent"]): string {
-    const modelMap: Record<string, string> = {
-      analyzer: "deepseek-v4-flash",
-      planner: "qwen3.7-plus",
-      executor: "deepseek-v4-flash",
-      verifier: "glm-5.2",
-      optimizer: "minimax-m3",
-      reporter: "minimax-m3",
-      monitor: "mimo-v2.5",
-    };
-    return modelMap[agent] || "deepseek-v4-flash";
   }
 
   private identifyRiskFactors(analysis: Analysis, category: TaskCategory): string[] {

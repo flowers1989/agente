@@ -4,11 +4,13 @@ import type { AgentType, AgentConfig, MemoryType } from "../types";
 import { AGENTS } from "../mock-data";
 import { getAdapter, type ChatMessage } from "./opencode-adapter";
 import { useMemoryStore } from "../memory/memory-store";
+import { getAgentModel, type AgentModelKey, type AgentMode } from "../config/model-routing";
 
 // ==================== AGENTE BASE ====================
 // Clase abstracta que heredan los 7 agentes.
 // Cada agente:
-// - Tiene su modelo OpenCode Go asignado
+// - Tiene su modelo OpenCode Go asignado (resuelto desde model-routing.ts)
+// - Soporta modo "economy" (default, bajo costo) y "quality" (alta calidad)
 // - Tiene su system prompt
 // - Puede leer y escribir en la memoria compartida
 // - Puede emitir eventos al frontend
@@ -23,20 +25,38 @@ export interface AgentEvent {
 export abstract class BaseAgent {
   protected config: AgentConfig;
   protected adapter = getAdapter();
+  /** Modo de ejecución: "economy" (default, bajo costo) o "quality" (alta calidad). */
+  protected mode: AgentMode = "economy";
 
   constructor(agentType: AgentType) {
     this.config = AGENTS[agentType];
   }
 
-  // Llamar al LLM con el system prompt del agente
+  /** Cambia el modo de ejecución del agente. */
+  setMode(mode: AgentMode): void {
+    this.mode = mode;
+  }
+
+  /** Devuelve el modo de ejecución activo. */
+  getMode(): AgentMode {
+    return this.mode;
+  }
+
+  // Llamar al LLM con el system prompt del agente.
+  // El modelo se resuelve desde model-routing.ts según el modo activo,
+  // eliminando la dependencia de this.config.modelId en runtime.
   protected async callLLM(
     userPrompt: string,
-    params?: { temperature?: number; maxTokens?: number }
+    params?: { temperature?: number; maxTokens?: number; mode?: AgentMode }
   ): Promise<{ content: string; tokensUsed: number; cost: number; model: string }> {
     const messages: ChatMessage[] = [
       { role: "system", content: this.config.systemPrompt },
       { role: "user", content: userPrompt },
     ];
+
+    // Resolver modelo desde la fuente de verdad centralizada (model-routing.ts)
+    const effectiveMode = params?.mode ?? this.mode;
+    const resolvedModel = getAgentModel(this.config.type as AgentModelKey, effectiveMode);
 
     // Limitar tokens de salida para reducir costos (sobreescribible por params)
     const maxTokens = params?.maxTokens ?? 2048;
@@ -44,7 +64,7 @@ export abstract class BaseAgent {
     const response = await this.adapter.chat(messages, {
       ...params,
       maxTokens,
-      model: this.config.modelId,  // Cada agente usa su modelo asignado
+      model: resolvedModel,
     });
 
     return {
@@ -90,6 +110,7 @@ export abstract class BaseAgent {
 
   // Getters
   get name(): string { return this.config.name; }
+  /** modelId refleja el modelo economy (default). Para el modelo activo en runtime usar getAgentModel(). */
   get modelId(): string { return this.config.modelId; }
   get type(): AgentType { return this.config.type; }
   get description(): string { return this.config.description; }

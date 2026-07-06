@@ -6,6 +6,7 @@ import { getOrchestrator } from "@/lib/agents/orchestrator";
 import { getAdapter, type ChatMessage as LLMChatMessage } from "@/lib/agents/opencode-adapter";
 import { detectSimpleTask } from "@/lib/agents/simple-task-detector";
 import { sanitizeLLMOutput } from "@/lib/utils";
+import { type AgentMode } from "@/lib/config/model-routing";
 
 // ==================== EJECUCIÓN DEL AGENTE EN EL BACKEND ====================
 // Este endpoint ejecuta la orquestación de los 7 agentes EN EL SERVIDOR
@@ -24,6 +25,8 @@ const ExecuteSchema = z.object({
     .max(10)
     .optional(),
   forceSimple: z.boolean().optional(),
+  /** Modo de ejecución: "economy" (default) o "quality" (alta calidad). */
+  mode: z.enum(["economy", "quality"]).optional(),
 });
 
 export interface AgentSSEEvent {
@@ -49,7 +52,7 @@ export async function POST(request: Request) {
     return Response.json({ error: validation.error }, { status: 400 });
   }
 
-  const { objective, conversationId, userObjective, previousMessages = [], forceSimple } = validation.data;
+  const { objective, conversationId, userObjective, previousMessages = [], forceSimple, mode = "economy" } = validation.data;
 
   // Inicializar el adaptador con la API key (llamada directa a OpenCode Go desde el servidor)
   const adapter = getAdapter();
@@ -150,7 +153,8 @@ export async function POST(request: Request) {
             onComplete: (orchestratorResult) => send("complete", { result: orchestratorResult, conversationId }),
             onError: (error) => send("error", { error, conversationId }),
           },
-          userObjective
+          userObjective,
+          mode as AgentMode
         );
 
         const usage = adapter.getUsageStats();
