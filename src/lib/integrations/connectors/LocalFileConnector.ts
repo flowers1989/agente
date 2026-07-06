@@ -109,7 +109,7 @@ export class LocalFileConnector extends BaseConnector {
       where: {
         userId: this.userId,
         source: "local",
-        name: { contains: query, mode: "insensitive" },
+        name: { contains: query },
       },
       orderBy: { createdAt: "desc" },
     });

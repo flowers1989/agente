@@ -2,78 +2,132 @@
 
 Este documento detalla los cambios realizados en el repositorio `https://github.com/flowers1989/agente.git` para acercar el proyecto a las funcionalidades de Manus AI, así como los pasos pendientes para lograr una paridad completa.
 
-## 🚀 Cambios Implementados (Fase 1 y parte de Fase 2)
+---
 
-Se han realizado modificaciones significativas para integrar el entorno de sandbox de Docker y expandir las capacidades de los conectores y habilidades del agente. Los archivos clave modificados son:
+## ✅ Cambios Implementados (Fase 1 y parte de Fase 2)
 
 ### 1. Integración del Sandbox de Docker en `ToolRegistry.ts`
 
 *   **Archivo:** `src/lib/agents/tool-registry.ts`
-*   **Descripción:** Se ha reemplazado la ejecución simulada de código y las operaciones de archivo con llamadas directas al `SandboxManager`. Esto permite que el agente ejecute código Python, Node.js y comandos Bash/Shell en un entorno Docker aislado y real. Las operaciones de lectura y escritura de archivos también se dirigen ahora al sistema de archivos del sandbox.
-*   **Detalles:**
-    *   `pythonExecutionExecutor`, `nodeExecutionExecutor`, `bashExecutionExecutor` y `gitExecutor` ahora utilizan `executeCodeInSandbox`.
-    *   `fileReadExecutor` y `fileWriteExecutor` ahora interactúan con `getSandboxManager().readFile` y `getSandboxManager().writeFile` respectivamente.
+*   `pythonExecutionExecutor`, `nodeExecutionExecutor`, `bashExecutionExecutor` y `gitExecutor` ahora utilizan `executeCodeInSandbox`.
+*   `fileReadExecutor` y `fileWriteExecutor` interactúan con `getSandboxManager().readFile` y `getSandboxManager().writeFile`.
 
 ### 2. Activación del Sistema de Habilidades (Skills)
 
 *   **Archivo:** `src/lib/agents/tool-registry.ts`
-*   **Descripción:** El `skillExecutionExecutor` ha sido mejorado para buscar y ejecutar scripts (`script.py`, `script.js`, `script.sh`) dentro de las carpetas de habilidades en el sandbox. Esto permite que el agente cargue y ejecute dinámicamente nuevas habilidades definidas por el usuario.
-*   **Detalles:**
-    *   Se añadió lógica para listar archivos dentro de la carpeta de la habilidad y ejecutar el script correspondiente usando `executeCodeInSandbox`.
-    *   Se creó un archivo de ejemplo `skills/example-skill/script.py` para demostrar la funcionalidad.
+*   El `skillExecutionExecutor` busca y ejecuta scripts (`script.py`, `script.js`, `script.sh`) dentro de carpetas de habilidades en el sandbox.
+*   Se creó `skills/example-skill/script.py` como ejemplo.
 
 ### 3. Creación e Integración del Conector de Google Drive
 
 *   **Archivo:** `src/lib/integrations/connectors/GoogleDriveConnector.ts`
-*   **Descripción:** Se ha creado un conector funcional para Google Drive, permitiendo al agente interactuar con los archivos del usuario en la nube. Este conector soporta la autenticación OAuth2 y realiza llamadas reales a la API de Google Drive.
-*   **Detalles:**
-    *   Implementación de `listFiles` para listar archivos y carpetas.
-    *   Implementación de `getResource` para obtener metadatos detallados de un archivo.
-    *   Implementación de `readFile` para leer el contenido de archivos, incluyendo la exportación de documentos de Google Docs a texto plano o PDF.
+*   Implementación completa de `listResources`, `getResource`, `readFile` y `search` con OAuth2.
 
-### 4. Actualización del `RestConnector.ts` para Flexibilidad de Peticiones
+### 4. Actualización del `RestConnector.ts`
 
 *   **Archivo:** `src/lib/integrations/connectors/base/RestConnector.ts`
-*   **Descripción:** Se han añadido opciones `rawUrl` y `responseType` a la interfaz `RestRequestOptions` y a la implementación del método `request`. Esto es crucial para manejar URLs completas (como las de exportación de Google Drive) y diferentes tipos de respuesta (JSON, texto, arraybuffer).
+*   Se añadieron opciones `rawUrl` y `responseType` para manejar URLs completas y distintos tipos de respuesta.
 
-### 5. Registro Dinámico de Conectores y Habilitación en la UI
+### 5. Registro Dinámico de Conectores en la UI
 
-*   **Archivos:** `src/lib/agents/tool-registry.ts`, `src/lib/integrations/ConnectorManager.ts`, `src/lib/integrations/ConnectorRegistry.ts`, `src/components/integration/IntegrationMenu.tsx`
-*   **Descripción:**
-    *   El `ToolRegistry` ahora registra dinámicamente todas las acciones definidas en `ConnectorRegistry.ts` como herramientas disponibles para el agente.
-    *   El `GoogleDriveConnector` ha sido registrado en `ConnectorManager.ts`.
-    *   La definición de `google-drive` en `ConnectorRegistry.ts` ha sido actualizada para incluir las acciones `listFiles`, `getResource` y `readFile` con sus respectivos parámetros.
-    *   Se ha habilitado la opción de Google Drive y Skills en el `IntegrationMenu.tsx` de la interfaz de usuario, eliminando el mensaje de "aún no implementado".
+*   El `ToolRegistry` registra dinámicamente todas las acciones de `ConnectorRegistry.ts`.
+*   El `GoogleDriveConnector` fue registrado en `ConnectorManager.ts`.
+*   Se habilitó Google Drive y Skills en `IntegrationMenu.tsx`.
 
-## 🚧 Próximos Pasos y Funcionalidades Pendientes
+---
 
-Para lograr una paridad completa con Manus AI, se deben abordar las siguientes áreas:
+## ✅ Cambios Implementados (Fase 3 — Sesión actual)
 
-### 1. Refinamiento de la Orquestación y Bucle de Atención
+### 6. Configuración Centralizada de Modelos (`model-routing.ts`)
 
-*   **Implementación del Bucle de Atención (`todo.md`):** Desarrollar la lógica para que el agente mantenga un `todo.md` dinámico, planificando sus pasos, reflexionando sobre los resultados y ajustando su estrategia. Esto es fundamental para el comportamiento autónomo.
-*   **Memoria Episódica Persistente:** Integrar una base de datos para almacenar la memoria a largo plazo del agente, permitiéndole recordar interacciones pasadas, resultados de herramientas y aprendizajes entre sesiones.
-*   **Optimización de Modelos OpenCode Go:** Implementar la lógica para la selección dinámica del modelo de OpenCode Go más adecuado para cada tarea (por ejemplo, un modelo más pequeño para tareas simples, uno más grande para razonamiento complejo), así como la gestión de costos y el KV-Caching.
+*   **Archivo:** `src/lib/config/model-routing.ts` *(nuevo)*
+*   **Commit:** `987f50c`
+*   Única fuente de verdad para la asignación modelo-agente. Elimina la discrepancia entre `getModelForAgent()` en `planner-agent.ts` (que tenía `glm-5.2` en lugar de `glm-5.1`) y el `modelId` real en `base-agent.ts`.
+*   Exporta `getAgentModel(agentType, mode)` con soporte para modo `economy` (por defecto) y `quality`.
 
-### 2. Expansión y Profundización de Conectores
+### 7. Actualización de Agentes con Modelos Óptimos
 
-*   **Funcionalidad Completa de Conectores Existentes:** Implementar las acciones restantes (crear, actualizar, eliminar) para Google Drive y otros conectores como Gmail, Slack, GitHub, Notion, etc., que actualmente solo tienen funcionalidades básicas o son `TemplateConnector`s.
-*   **Conectores Adicionales:** Integrar más servicios populares (por ejemplo, Trello, Asana, Jira, Salesforce, etc.) para ampliar el ecosistema de herramientas del agente.
+*   **Archivos:** `src/lib/agents/base-agent.ts`, `src/lib/agents/planner-agent.ts`, `src/lib/mock-data.ts`
+*   Se eliminó `getModelForAgent()` de `planner-agent.ts` y se reemplazó por `getAgentModel()` del archivo centralizado.
+*   `base-agent.ts` ahora expone `setMode()` / `getMode()` para cambiar entre perfiles.
+*   Asignación de modelos resultante:
 
-### 3. Herramientas y Funcionalidades Avanzadas de Usuario
+| Agente | Economy (default) | Quality |
+|---|---|---|
+| Analizador | `deepseek-v4-flash` | `qwen3.7-plus` |
+| Planificador | `deepseek-v4-flash` | `qwen3.7-plus` |
+| Ejecutor | `deepseek-v4-flash` | `kimi-k2.7-code` |
+| Verificador | `deepseek-v4-flash` | `glm-5.1` |
+| Optimizador | `minimax-m3` | `deepseek-v4-pro` |
+| Reportero | `minimax-m3` | `qwen3.6-plus` |
+| Monitor | `mimo-v2.5` | `mimo-v2.5` |
 
-*   **Generación de Diapositivas:** Implementar la capacidad de generar presentaciones (PPT/PDF) a partir de contenido proporcionado por el usuario o el agente.
-*   **Análisis de Video/Audio:** Desarrollar herramientas para procesar y extraer información de contenido multimedia.
-*   **Generación de Imágenes/Medios:** Integrar capacidades de generación de imágenes o edición de medios mediante IA.
-*   **Automatización y Programación:** Permitir al usuario programar tareas recurrentes o flujos de trabajo complejos.
+### 8. Modo Economy / Quality en el Orquestador y API
 
-### 4. Identidad Visual
+*   **Archivos:** `src/lib/agents/orchestrator.ts`, `src/app/api/agent/execute/route.ts`
+*   El orquestador acepta `mode: "economy" | "quality"` y lo propaga a todos los agentes.
+*   El endpoint `/api/agent/execute` acepta el campo `mode` en el body del POST.
 
-*   **Diseño de Logo Minimalista:** Crear un logo que represente la marca del agente, siguiendo principios de diseño minimalista y profesional.
+### 9. Corrección de Errores de TypeScript (0 errores en `src/`)
 
-### 5. Pruebas y Documentación
+*   **Archivos corregidos (17 archivos):**
+    *   `src/lib/store-execution.ts` — ruta de importación de `types` corregida.
+    *   `src/lib/api/validation.ts` — `z.record()` actualizado a Zod v4 (2 argumentos).
+    *   `src/components/agente/chat-panel.tsx` — `Step` → `ExecutionStep`, `RefObject<HTMLTextAreaElement | null>`.
+    *   `src/components/agente/pages/auth-page.tsx` — `register()` con 2 argumentos.
+    *   `src/components/agente/pages/landing-page.tsx` — tipos de SVG components corregidos.
+    *   `src/components/agente/theme-initializer.tsx` — añadido `return null`.
+    *   `src/components/integration/ConnectorsPanel.tsx` — `scopes` siempre `string[]`.
+    *   `src/lib/compilation/BuildManager.ts` — import `OutputFormat`, tipo `string` en `inferArchitecture`.
+    *   `src/lib/compilation/recommender.ts` — eliminado `"social"` de `AppType`.
+    *   `src/lib/integrations/connectors/GoogleDriveConnector.ts` — reescrito completo con tipos correctos.
+    *   `src/lib/integrations/connectors/LocalFileConnector.ts` — eliminado `mode: "insensitive"` de Prisma.
+    *   `src/lib/integrations/types.ts` — añadido campo `content?: string` a `Resource`.
+    *   `src/lib/mock-data.ts` — `SAMPLE_CONVERSATIONS: Conversation[]` con import correcto.
+    *   `src/lib/sandbox/SandboxManager.ts` — `demuxStream` con `Writable` streams correctos.
+    *   `src/app/api/compile/route.ts` — cast `as unknown as CompileRequest`.
+    *   `src/app/api/recommendations/route.ts` — cast `as AppRequirements`.
 
-*   **Pruebas Exhaustivas:** Implementar pruebas unitarias, de integración y end-to-end para todas las nuevas funcionalidades, especialmente para la interacción con el sandbox y los conectores externos.
-*   **Documentación de Usuario y Desarrollador:** Crear documentación clara sobre cómo usar el agente, cómo configurar los conectores y cómo desarrollar nuevas habilidades.
+### 10. Logo Minimalista
 
-Con estos pasos, tu proyecto estará en camino de convertirse en un agente autónomo altamente capaz y comparable a Manus AI.
+*   **Archivo:** `public/logo.png`
+*   Logo generado con IA: hexágono outline con círculo central, blanco sobre fondo oscuro.
+
+---
+
+## 🚧 Pendiente — Próximos Pasos
+
+### P1. Botón de Modo Economy / Quality en la UI *(alta prioridad)*
+
+*   **Objetivo:** Un solo botón visible en el `ChatInput` o en el header de la conversación que permita al usuario cambiar entre modo **Rápido** (economy) y modo **Calidad** (quality) con un solo clic, sin terminología técnica.
+*   **Archivos a modificar:**
+    *   `src/lib/store-app.ts` — añadir campo `agentMode: "economy" | "quality"` al estado persistido y la acción `toggleAgentMode()`.
+    *   `src/lib/agents/stream-client.ts` — añadir campo `mode` al `StreamAgentParams` y pasarlo en el body del fetch.
+    *   `src/hooks/use-execution.ts` — leer `agentMode` del store y pasarlo a `streamAgentExecution`.
+    *   `src/components/agente/chat-panel.tsx` — añadir el botón de toggle en el `ChatInput`, con etiquetas amigables ("Rápido ⚡" / "Calidad ✨") y tooltip explicativo.
+*   **UX esperada:** El botón debe ser discreto (pequeño, en la barra del input), con un indicador visual claro del modo activo. Al hacer clic cambia instantáneamente y persiste entre sesiones.
+
+### P2. Bucle de Atención con `todo.md` Dinámico
+
+*   Desarrollar la lógica para que el agente mantenga un `todo.md` interno, planifique pasos, reflexione sobre resultados y ajuste su estrategia en tiempo real.
+
+### P3. Memoria Episódica Persistente
+
+*   Integrar base de datos para almacenar memoria a largo plazo entre sesiones (resultados de herramientas, aprendizajes, contexto de conversaciones anteriores).
+
+### P4. Funcionalidades Completas de Conectores
+
+*   Implementar acciones de escritura (crear, actualizar, eliminar) para Google Drive, Gmail, Slack, GitHub, Notion.
+*   Agregar conectores adicionales: Trello, Asana, Jira, Salesforce.
+
+### P5. Herramientas Avanzadas
+
+*   Generación de diapositivas (PPT/PDF).
+*   Análisis de video/audio.
+*   Generación de imágenes con IA.
+*   Programación de tareas recurrentes (cron).
+
+### P6. Pruebas y Documentación
+
+*   Pruebas unitarias, de integración y e2e para sandbox y conectores.
+*   Documentación de usuario y de desarrollador.

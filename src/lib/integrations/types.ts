@@ -64,6 +64,7 @@ export interface Resource {
   url?: string;
   localPath?: string;
   thumbnailUrl?: string;
+  content?: string;
   metadata: ResourceMetadata;
   syncStatus: SyncStatus;
   lastSyncedAt: Date;

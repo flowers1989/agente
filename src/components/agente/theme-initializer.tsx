@@ -24,4 +24,5 @@ export function ThemeInitializer() {
       navigate("app");
     }
   }, [isAuthenticated, user, onboarded, route, navigate]);
+  return null;
 }

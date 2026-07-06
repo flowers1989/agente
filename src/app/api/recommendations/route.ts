@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { extractRequirements } from "@/lib/compilation/analyzer";
 import { getRecommendations } from "@/lib/compilation/recommender";
+import type { AppRequirements } from "@/lib/compilation/types";
 import { withRateLimit } from "@/lib/api/rate-limit-helper";
 import { RecommendationsSchema, validate } from "@/lib/api/validation";
 import { getIdentifier } from "@/lib/api/auth";
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
 
     const { objective, requirements } = validation.data;
     const finalRequirements = requirements || extractRequirements(objective || "");
-    const recommendations = getRecommendations(finalRequirements);
+    const recommendations = getRecommendations(finalRequirements as AppRequirements);
 
     return NextResponse.json({ requirements: finalRequirements, recommendations });
   } catch (error) {

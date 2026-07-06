@@ -22,7 +22,7 @@ interface PlatformProfile {
 const PROFILES: Record<Platform, PlatformProfile> = {
   android: {
     name: "Android",
-    naturalFor: ["mobile", "game", "social", "utility"],
+    naturalFor: ["mobile", "game", "utility"],
     frameworks: {
       mobile: "Jetpack Compose + Kotlin",
       desktop: "Electron + Capacitor",

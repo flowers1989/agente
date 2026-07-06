@@ -21,7 +21,7 @@ export type ChatCompletionRequest = z.infer<typeof ChatCompletionSchema>;
 
 export const ConnectorActionSchema = z.object({
   action: z.string().min(1),
-  params: z.record(z.unknown()).optional().default({}),
+  params: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 export const SaveCredentialsSchema = z.object({
@@ -56,12 +56,12 @@ export const BrowserActionSchema = z.object({
     "executeScript",
     "getDOMRepresentation",
   ]),
-  params: z.record(z.unknown()).optional().default({}),
+  params: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 export const CompileRequestSchema = z.object({
   projectName: z.string().min(1).max(100),
-  requirements: z.record(z.unknown()),
+  requirements: z.record(z.string(), z.unknown()),
   platforms: z.array(z.enum(["android", "android-tv", "windows", "linux", "macos"])).min(1).max(5),
   config: z
     .object({
@@ -86,7 +86,7 @@ export const CompileRequestSchema = z.object({
 
 export const RecommendationsSchema = z.object({
   objective: z.string().min(1).max(2000).optional(),
-  requirements: z.record(z.unknown()).optional(),
+  requirements: z.record(z.string(), z.unknown()).optional(),
 });
 
 export function validate<T>(schema: z.ZodSchema<T>, data: unknown): { success: true; data: T } | { success: false; error: string } {

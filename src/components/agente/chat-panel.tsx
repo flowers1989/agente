@@ -24,7 +24,7 @@ import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { formatTime, formatNumber, formatCost } from "@/lib/mock-data";
-import type { Step, ChatMessage } from "@/lib/types";
+import type { ExecutionStep, ChatMessage } from "@/lib/types";
 import { useTask } from "@/hooks/use-task";
 import { IntegrationMenu } from "@/components/integration/IntegrationMenu";
 import { exportReport, type ExportFormat } from "@/lib/export-report";
@@ -213,7 +213,7 @@ function ChatInput({
   setInput: (v: string) => void;
   onSubmit: () => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
-  textareaRef: React.RefObject<HTMLTextAreaElement>;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   disabled?: boolean;
 }) {
   return (
@@ -311,7 +311,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   );
 }
 
-function StepRow({ step }: { step: Step }) {
+function StepRow({ step }: { step: ExecutionStep }) {
   const Icon = PRODUCES_ICON[step.produces || "output"] || FileText;
   const setWorkspaceTab = useExecutionStore((s) => s.setWorkspaceTab);
 

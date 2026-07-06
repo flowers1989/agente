@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { WorkspaceState, WorkspaceTabType, LogEntry, AgentType } from "../types";
+import type { WorkspaceState, WorkspaceTabType, LogEntry, AgentType } from "./types";
 import { useMemoryStore } from "./memory/memory-store";
 
 // ==================== EXECUTION STORE ====================

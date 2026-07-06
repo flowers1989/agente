@@ -7,7 +7,7 @@ import { LogoMark } from "@/components/agente/logo";
 import { ArrowRight, Moon, Sun, Check, Sparkles } from "lucide-react";
 import { LANDING_STATS, LANDING_EXAMPLES } from "@/lib/mock-data";
 
-const ICON_MAP: Record<string, typeof Sparkles> = {
+const ICON_MAP: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
   search: Search,
   code: Code,
   chart: ChartBar,
@@ -16,11 +16,11 @@ const ICON_MAP: Record<string, typeof Sparkles> = {
   sparkles: Sparkles,
 };
 
-function Search(props: React.ComponentProps<typeof Sparkles>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>; }
-function Code(props: React.ComponentProps<typeof Sparkles>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>; }
-function ChartBar(props: React.ComponentProps<typeof Sparkles>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" /></svg>; }
-function Zap(props: React.ComponentProps<typeof Sparkles>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>; }
-function FileText(props: React.ComponentProps<typeof Sparkles>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></svg>; }
+function Search(props: React.SVGProps<SVGSVGElement>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>; }
+function Code(props: React.SVGProps<SVGSVGElement>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>; }
+function ChartBar(props: React.SVGProps<SVGSVGElement>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" /></svg>; }
+function Zap(props: React.SVGProps<SVGSVGElement>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>; }
+function FileText(props: React.SVGProps<SVGSVGElement>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props as any}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></svg>; }
 
 export function LandingPage() {
   const navigate = useAppStore((s) => s.navigate);

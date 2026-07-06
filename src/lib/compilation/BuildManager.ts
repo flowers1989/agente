@@ -16,6 +16,7 @@ import type {
   BuildStatus,
   CompileRequest,
   Platform,
+  OutputFormat,
 } from "./types";
 
 const BUILDS_DIR = path.join(process.cwd(), "uploads", "builds");
@@ -156,8 +157,8 @@ export class BuildManager {
     return new SimulatedCompiler(platform);
   }
 
-  private inferOutputFormat(platform: Platform): string {
-    const map: Record<Platform, string> = {
+  private inferOutputFormat(platform: Platform): OutputFormat {
+    const map: Record<Platform, OutputFormat> = {
       android: "apk",
       "android-tv": "apk",
       windows: "exe",

@@ -112,7 +112,7 @@ export function ConnectorsPanel() {
         body: JSON.stringify({
           source: configuringOAuth.source,
           ...oauthConfig,
-          scopes: Array.isArray(oauthConfig.scopes) ? oauthConfig.scopes : oauthConfig.scopes?.split(","),
+          scopes: oauthConfig.scopes ?? [],
         }),
       });
       if (!res.ok) throw new Error("Error guardando configuración OAuth");
@@ -300,7 +300,7 @@ export function ConnectorsPanel() {
               <Label className="text-xs">Scopes (separados por coma)</Label>
               <Input
                 value={Array.isArray(oauthConfig.scopes) ? oauthConfig.scopes.join(",") : oauthConfig.scopes || ""}
-                onChange={(e) => setOauthConfig((c) => ({ ...c, scopes: e.target.value }))}
+                onChange={(e) => setOauthConfig((c) => ({ ...c, scopes: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))}
                 className="font-mono text-xs"
               />
             </div>

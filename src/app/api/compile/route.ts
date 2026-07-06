@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const build = await buildManager.createBuild(validation.data as CompileRequest);
+    const build = await buildManager.createBuild(validation.data as unknown as CompileRequest);
 
     void buildManager.runBuild(build.id).catch((error) => {
       console.error(`[BuildManager] Error ejecutando build ${build.id}:`, error);

@@ -149,15 +149,13 @@ export class SandboxManager {
           }, options.timeoutMs)
         : null;
 
-      this.docker.modem.demuxStream(stream, {
-        write: (data: Buffer) => {
-          stdout += data.toString("utf8");
-        },
-      }, {
-        write: (data: Buffer) => {
-          stderr += data.toString("utf8");
-        },
+      const stdoutStream = new (require("stream").Writable)({
+        write(chunk: Buffer, _enc: string, cb: () => void) { stdout += chunk.toString("utf8"); cb(); },
       });
+      const stderrStream = new (require("stream").Writable)({
+        write(chunk: Buffer, _enc: string, cb: () => void) { stderr += chunk.toString("utf8"); cb(); },
+      });
+      this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
 
       stream.on("end", () => {
         if (timeout) clearTimeout(timeout);

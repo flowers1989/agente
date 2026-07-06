@@ -40,7 +40,7 @@ export function AuthPage({ mode }: AuthPageProps) {
     setLoading(true);
     await new Promise((r) => setTimeout(r, 600));
     if (isRegister) {
-      register(email, name, password);
+      register(email, name);
       toast.success("Cuenta creada");
     } else {
       login(email, name);

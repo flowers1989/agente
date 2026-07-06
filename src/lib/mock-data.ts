@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentType, AIModel, Tool, ToolCategory } from "./types";
+import type { AgentConfig, AgentType, AIModel, Tool, ToolCategory, Conversation } from "./types";
 
 // ==================== 13 MODELOS OPencode GO ====================
 export const AI_MODELS: AIModel[] = [
@@ -364,7 +364,7 @@ const now = Date.now();
 const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
 const minsAgo = (m: number) => new Date(now - m * 60_000).toISOString();
 
-export const SAMPLE_CONVERSATIONS = [
+export const SAMPLE_CONVERSATIONS: Conversation[] = [
   {
     id: "conv-1",
     title: "Análisis de competencia en tools AI",
