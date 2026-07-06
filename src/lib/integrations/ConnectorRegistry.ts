@@ -51,8 +51,12 @@ export const CONNECTOR_DEFINITIONS: Record<IntegrationSource, ConnectorDefinitio
     description: "Importar archivos de Google Drive",
     type: "oauth2",
     priority: "medium",
-    scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-    actions: [{ name: "listFiles", description: "Listar archivos", params: [] }],
+    scopes: ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/drive.file"], // Added drive.file for reading content
+    actions: [
+      { name: "listFiles", description: "Listar archivos", params: [{ name: "limit", type: "number", required: false }, { name: "query", type: "string", required: false }] },
+      { name: "getResource", description: "Obtener detalle de un archivo", params: [{ name: "id", type: "string", required: true }] },
+      { name: "readFile", description: "Leer contenido de un archivo", params: [{ name: "id", type: "string", required: true }] },
+    ],
     supportsOAuth: true,
     supportsApiKey: false,
     authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -65,7 +69,10 @@ export const CONNECTOR_DEFINITIONS: Record<IntegrationSource, ConnectorDefinitio
     type: "rest",
     priority: "low",
     scopes: [],
-    actions: [],
+    actions: [
+      { name: "listSkills", description: "Listar habilidades disponibles", params: [] },
+      { name: "executeSkill", description: "Ejecutar una habilidad por nombre", params: [{ name: "name", type: "string", required: true }, { name: "action", type: "string", required: false, description: "Acción específica de la habilidad (ej. 'execute', 'info')" }, { name: "params", type: "object", required: false, description: "Parámetros adicionales para la habilidad" }] },
+    ],
     supportsOAuth: false,
     supportsApiKey: false,
   },

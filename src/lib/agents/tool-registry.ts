@@ -10,6 +10,9 @@
 
 import { getAdapter } from "./opencode-adapter";
 import { useMemoryStore } from "../memory/memory-store";
+import { getSandboxManager, getOrCreateSandbox } from "../sandbox/SandboxManager";
+import { listConnectorDefinitions } from "../integrations/ConnectorRegistry";
+import { getUserId } from "../api/auth"; // Necesario para crear/obtener sandbox
 
 export interface ToolContext {
   conversationId: string;
@@ -106,9 +109,9 @@ export class ToolRegistry {
     this.register("Git", this.gitExecutor.bind(this));
 
     // === Ejecución de Código ===
-    this.register("Python Execution", this.simulatedExecutor("Python ejecutado en sandbox"));
-    this.register("Node.js Execution", this.simulatedExecutor("Node.js ejecutado"));
-    this.register("Bash/Shell Execution", this.simulatedExecutor("Shell ejecutado"));
+    this.register("Python Execution", this.pythonExecutionExecutor.bind(this));
+    this.register("Node.js Execution", this.nodeExecutionExecutor.bind(this));
+    this.register("Bash/Shell Execution", this.bashExecutionExecutor.bind(this));
 
     // === Análisis y Visualización ===
     this.register("Data Analysis", this.dataAnalysisExecutor.bind(this));
@@ -119,6 +122,16 @@ export class ToolRegistry {
     this.register("Testing", this.simulatedExecutor("Tests ejecutados"));
     this.register("Project Management", this.simulatedExecutor("Tarea gestionada"));
     this.register("Deployment", this.compilationExecutor.bind(this));
+    this.register("Skill Execution", this.skillExecutionExecutor.bind(this));
+
+    // === Conectores Dinámicos ===
+    const connectorDefs = listConnectorDefinitions();
+    for (const def of connectorDefs) {
+      for (const action of def.actions) {
+        const toolName = `${def.name} - ${action.name}`;
+        this.register(toolName, this.createConnectorExecutor(def.source, action.name));
+      }
+    }
   }
 
   // ==================== COMPILACIÓN MULTIPLATAFORMA ====================
@@ -202,6 +215,39 @@ export class ToolRegistry {
       const message = error instanceof Error ? error.message : String(error);
       return { success: false, error: message };
     }
+  };
+
+  // ==================== BROWSER HELPERS ====================
+
+  // ==================== EJECUCIÓN DE CÓDIGO EN SANDBOX ====================
+
+  private async executeCodeInSandbox(language: "python" | "node" | "bash", code: string, context: ToolContext): Promise<ToolExecutionResult> {
+    if (!code) {
+      return { success: false, error: `Falta el parámetro 'code' para ${language} execution` };
+    }
+    try {
+      const sandbox = await getOrCreateSandbox(context.conversationId);
+      const result = await getSandboxManager().runCode(sandbox.taskId, language, code);
+      if (result.exitCode !== 0) {
+        return { success: false, error: result.stderr || `Error ejecutando ${language} en sandbox` };
+      }
+      return { success: true, result: result.stdout, output: { type: "code", content: result.stdout, language } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error ejecutando ${language} en sandbox: ${message}` };
+    }
+  }
+
+  private pythonExecutionExecutor: ToolExecutor = async (params, context) => {
+    return this.executeCodeInSandbox("python", String(params.code), context);
+  };
+
+  private nodeExecutionExecutor: ToolExecutor = async (params, context) => {
+    return this.executeCodeInSandbox("node", String(params.code), context);
+  };
+
+  private bashExecutionExecutor: ToolExecutor = async (params, context) => {
+    return this.executeCodeInSandbox("bash", String(params.command || params.code), context);
   };
 
   // ==================== BROWSER HELPERS ====================
@@ -785,6 +831,11 @@ export class ToolRegistry {
   // ==================== ANÁLISIS DE DATOS REALES ====================
 
   private dataAnalysisExecutor: ToolExecutor = async (params, context) => {
+    // Si se proporciona código Python para análisis, ejecutarlo en el sandbox
+    if (params.code && typeof params.code === "string") {
+      return this.executeCodeInSandbox("python", params.code, context);
+    }
+
     try {
       const memory = useMemoryStore.getState();
       const searchEntry = memory.retrieve("working", `search:results:${context.conversationId}`);
@@ -862,49 +913,107 @@ export class ToolRegistry {
 
   // ==================== ARCHIVOS LOCALES ====================
 
-  private fileReadExecutor: ToolExecutor = async (params) => {
+  private fileReadExecutor: ToolExecutor = async (params, context) => {
     const path = String(params.path || "");
     if (!path) return { success: false, error: "Parámetro 'path' requerido" };
-    // Usar localStorage para archivos virtuales
-    const key = `agent:file:${path}`;
-    const content = typeof window !== "undefined" ? localStorage.getItem(key) : null;
-    if (content === null) {
-      return { success: false, error: `Archivo no encontrado: ${path}` };
+    try {
+      const sandbox = await getOrCreateSandbox(context.conversationId);
+      const content = await getSandboxManager().readFile(sandbox.taskId, path);
+      return {
+        success: true,
+        result: `Archivo leído: ${path} (${content.length} caracteres)`,
+        data: { path, content },
+        output: { type: "file", content, filename: path },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error leyendo archivo en sandbox: ${message}` };
     }
-    return {
-      success: true,
-      result: `Archivo leído: ${path} (${content.length} caracteres)`,
-      data: { path, content },
-    };
   };
 
-  private fileWriteExecutor: ToolExecutor = async (params) => {
+  private fileWriteExecutor: ToolExecutor = async (params, context) => {
     const path = String(params.path || "");
     const content = String(params.content || "");
     if (!path) return { success: false, error: "Parámetro 'path' requerido" };
-    if (typeof window !== "undefined") {
-      localStorage.setItem(`agent:file:${path}`, content);
+    try {
+      const sandbox = await getOrCreateSandbox(context.conversationId);
+      await getSandboxManager().writeFile(sandbox.taskId, path, content);
+      return {
+        success: true,
+        result: `Archivo escrito: ${path} (${content.length} caracteres)`,
+        data: { path },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error escribiendo archivo en sandbox: ${message}` };
     }
-    return {
-      success: true,
-      result: `Archivo escrito: ${path} (${content.length} caracteres)`,
-      data: { path },
-    };
   };
 
   // ==================== GIT ====================
 
-  private gitExecutor: ToolExecutor = async (params) => {
-    // Sin backend de Git real, usamos simulación
-    const action = String(params.action || "status");
-    const repo = String(params.repo || "repositorio actual");
-    return {
-      success: true,
-      result: `Git ${action} en ${repo} completado (simulado)`,
-    };
+  private gitExecutor: ToolExecutor = async (params, context) => {
+    const command = String(params.command || "");
+    if (!command) return { success: false, error: "Parámetro 'command' requerido para Git" };
+    return this.executeCodeInSandbox("bash", `git ${command}`, context);
   };
 
   // ==================== SIMULACIÓN ====================
+
+  private skillExecutionExecutor: ToolExecutor = async (params, context) => {
+    const skillName = String(params.name || "");
+    const action = String(params.action || "execute");
+    const skillPath = `/skills/${skillName}/SKILL.md`; // Asumiendo una estructura de skills
+
+    if (!skillName) {
+      return { success: false, error: "Parámetro 'name' de la habilidad requerido" };
+    }
+
+    try {
+      const sandbox = await getOrCreateSandbox(context.conversationId);
+
+      // Leer la descripción de la habilidad (SKILL.md)
+      const skillDefinition = await getSandboxManager().readFile(sandbox.taskId, skillPath);
+
+      // Aquí se podría implementar lógica más compleja para ejecutar la habilidad.
+      // Por ahora, simularemos una ejecución simple o devolveremos la definición.
+      let resultText = `Habilidad '${skillName}' (${action}) ejecutada.`;
+      let outputContent = skillDefinition;
+
+      if (action === "execute") {
+        // Buscar si hay un script ejecutable
+        const files = await getSandboxManager().listFiles(sandbox.taskId, `/skills/${skillName}`);
+        const scriptFile = files.find(f => f.name === "script.py" || f.name === "script.js" || f.name === "script.sh");
+        
+        if (scriptFile) {
+          let language: "python" | "node" | "bash" = "bash";
+          if (scriptFile.name.endsWith(".py")) language = "python";
+          if (scriptFile.name.endsWith(".js")) language = "node";
+          
+          const scriptContent = await getSandboxManager().readFile(sandbox.taskId, `/skills/${skillName}/${scriptFile.name}`);
+          const execResult = await this.executeCodeInSandbox(language, scriptContent, context);
+          
+          if (execResult.success) {
+             resultText = `Habilidad '${skillName}' ejecutada con éxito.\n\nSalida:\n${execResult.result}`;
+             outputContent = String(execResult.result);
+          } else {
+             return { success: false, error: `Error ejecutando script de habilidad '${skillName}': ${execResult.error}` };
+          }
+        } else {
+          resultText = `Habilidad '${skillName}' leída. Definición: ${skillDefinition.substring(0, 200)}...`;
+        }
+      }
+
+      return {
+        success: true,
+        result: resultText,
+        data: { skillName, action, skillDefinition },
+        output: { type: "text", content: outputContent, title: `Skill: ${skillName}` },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error ejecutando habilidad '${skillName}': ${message}` };
+    }
+  };
 
   private simulatedExecutor(resultText: string): ToolExecutor {
     return async () => ({

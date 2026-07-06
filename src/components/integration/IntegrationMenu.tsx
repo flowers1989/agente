@@ -77,7 +77,7 @@ export function IntegrationMenu({ onResourceImported }: IntegrationMenuProps) {
       setFigmaOpen(true);
       return;
     }
-    if (source === "onedrive" || source === "google-drive" || source === "skill") {
+    if (source === "onedrive") {
       toast.info(`${source} aún no está implementado`);
       return;
     }

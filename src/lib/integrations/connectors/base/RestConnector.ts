@@ -10,6 +10,8 @@ export interface RestRequestOptions {
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
   retries?: number;
+  rawUrl?: boolean; // Si es true, 'path' se usa como URL completa, ignorando baseUrl
+  responseType?: "json" | "text" | "arraybuffer"; // Tipo de respuesta esperada
 }
 
 export abstract class RestConnector extends BaseConnector {
@@ -33,9 +35,9 @@ export abstract class RestConnector extends BaseConnector {
   }
 
   protected async request<T = unknown>(path: string, options: RestRequestOptions = {}): Promise<T> {
-    const { method = "GET", headers = {}, body, query, retries = 1 } = options;
+    const { method = "GET", headers = {}, body, query, retries = 1, rawUrl = false, responseType = "json" } = options;
     const queryString = this.buildQueryString(query);
-    const url = `${this.baseUrl}${path}${queryString}`;
+    const url = rawUrl ? path : `${this.baseUrl}${path}${queryString}`;
     const authHeaders = await this.getAuthHeaders();
 
     let lastError: Error | undefined;
@@ -58,7 +60,14 @@ export abstract class RestConnector extends BaseConnector {
         }
 
         if (response.status === 204) return null as T;
-        return (await response.json()) as T;
+
+        if (responseType === "text") {
+          return (await response.text()) as T;
+        } else if (responseType === "arraybuffer") {
+          return (await response.arrayBuffer()) as T;
+        } else { // Default to json
+          return (await response.json()) as T;
+        }
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (attempt < retries) {

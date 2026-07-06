@@ -10,6 +10,7 @@ import { GmailConnector } from "./connectors/GmailConnector";
 import { GithubConnector } from "./connectors/GithubConnector";
 import { NotionConnector } from "./connectors/NotionConnector";
 import { GoogleSheetsConnector } from "./connectors/GoogleSheetsConnector";
+import { GoogleDriveConnector } from "./connectors/GoogleDriveConnector";
 import { DiscordConnector } from "./connectors/DiscordConnector";
 import { TelegramConnector } from "./connectors/TelegramConnector";
 import { ShopifyConnector } from "./connectors/ShopifyConnector";
@@ -59,6 +60,7 @@ export class ConnectorManager {
     this.registerConnector("github", GithubConnector);
     this.registerConnector("notion", NotionConnector);
     this.registerConnector("google-sheets", GoogleSheetsConnector);
+    this.registerConnector("google-drive", GoogleDriveConnector);
     this.registerConnector("discord", DiscordConnector);
     this.registerConnector("telegram", TelegramConnector);
 
