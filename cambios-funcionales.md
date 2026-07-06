@@ -140,31 +140,72 @@ Este documento detalla los cambios realizados en el repositorio `https://github.
 
 ---
 
+## ✅ Cambios Implementados (Fase 5 — Sesión 4)
+
+### 16. Endpoint `/api/media/generate-image` ✅
+
+*   **Archivo:** `src/app/api/media/generate-image/route.ts` *(nuevo)*
+*   Acepta `{ prompt, style?, size?, quality? }`. Estilos: `realistic`, `artistic`, `cartoon`, `sketch`, `minimal`.
+*   Intenta generar con **OpenAI DALL-E 3** si `OPENAI_API_KEY` está configurado.
+*   Fallback automático a un **SVG placeholder descriptivo** si no hay proveedor disponible.
+*   Rate limit: 10 requests/minuto por usuario.
+
+### 17. Persistencia de Memoria en Base de Datos (Prisma) ✅
+
+*   **Archivos nuevos:**
+    *   `src/lib/memory/memory-db.ts` — capa de acceso a datos para memoria persistente.
+    *   `src/app/api/memory/route.ts` — endpoint REST (GET/POST/DELETE) para consultar y gestionar la memoria.
+    *   `prisma/schema.prisma` — nuevo modelo `MemoryEntry` con índices por `userId`, `type`, `key` y `conversationId`.
+*   `MemoryDb.getRelevantContext()` usa scoring por palabras clave igual que el store en memoria.
+*   La memoria sobrevive entre dispositivos y sesiones de usuario.
+
+### 18. Conectores Expandidos con Acciones Reales ✅
+
+*   **Archivo:** `src/lib/integrations/ConnectorRegistry.ts`
+*   **Slack:** añadidas `getChannelHistory`, `addReaction`, `uploadFile`, `listUsers`.
+*   **Gmail:** añadidas `listEmails`, `getEmail`, `archiveEmail`, `deleteEmail`, `createDraft`.
+*   **Jira:** añadidas `listProjects`, `listIssues`, `getIssue`, `createIssue`, `updateIssue`, `addComment`, `transitionIssue`. Prioridad elevada a `medium`.
+*   **Asana:** añadidas `listProjects`, `listTasks`, `getTask`, `createTask`, `updateTask`, `deleteTask`, `addComment`. Prioridad elevada a `medium`.
+*   **Salesforce:** añadidas `listContacts`, `createContact`, `listLeads`, `createLead`, `listOpportunities`, `createOpportunity`, `runQuery`. Prioridad elevada a `medium`.
+*   **HubSpot:** añadidas `listContacts`, `createContact`, `listDeals`, `createDeal`, `listCompanies`, `searchCRM`. Prioridad elevada a `medium`.
+
+### 19. Sistema de Cron Jobs Real ✅
+
+*   **Archivos nuevos:**
+    *   `src/lib/cron/cron-manager.ts` — `CronManager` con parser de expresiones cron (5 campos), cálculo de `nextRunAt`, persistencia en BD.
+    *   `src/app/api/cron/route.ts` — endpoint REST (GET/POST/PATCH/DELETE) para CRUD de tareas.
+    *   `src/app/api/cron/tick/route.ts` — endpoint de polling para ejecutar tareas vencidas (protegido con `CRON_SECRET`).
+    *   `prisma/schema.prisma` — nuevos modelos `ScheduledTask` y `CronJobLog`.
+*   **Panel de administración en Settings** (`src/components/agente/pages/settings-page.tsx`):
+    *   Nuevo tab **"Tareas"** con lista de tareas, estado, próxima ejecución y contador de runs.
+    *   Formulario de creación con presets de horario (cada 5 min, diario, lunes-viernes, etc.).
+    *   Botones de activar/pausar y eliminar por tarea.
+    *   Actualización en tiempo real con botón de refresh.
+
+---
+
 ## 🚧 Pendiente — Próximos Pasos
 
 ### P1. Pruebas y Documentación
 
-*   Pruebas unitarias para `TodoManager`, `memory-store` y `tool-registry`.
+*   Pruebas unitarias para `TodoManager`, `memory-store`, `cron-manager` y `tool-registry`.
 *   Pruebas de integración para el flujo completo orquestador → agentes → herramientas.
-*   Documentación de usuario (cómo usar los modos, conectores, herramientas).
+*   Documentación de usuario (cómo usar los modos, conectores, herramientas, tareas programadas).
 *   Documentación de desarrollador (arquitectura, cómo agregar nuevos conectores/herramientas).
 
-### P2. Endpoint `/api/media/generate-image`
+### P2. Migración de Base de Datos
 
-*   Implementar el endpoint real para que `Image Generation` funcione en producción.
-*   Integrar con un proveedor de generación de imágenes (OpenAI DALL-E, Stability AI, etc.).
+*   Ejecutar `prisma migrate dev` para crear las tablas `MemoryEntry`, `ScheduledTask` y `CronJobLog` en producción.
+*   Configurar `DATABASE_URL` y `CRON_SECRET` en las variables de entorno del servidor.
+*   Conectar el cron tick con el orquestador real para ejecutar tareas de agente automáticamente.
 
-### P3. Persistencia de Memoria en Base de Datos
+### P3. Conectores Adicionales (Implementación HTTP Real)
 
-*   Migrar la memoria episódica y semántica de `localStorage` a una base de datos (PostgreSQL/Prisma).
-*   Permite que la memoria persista entre dispositivos y usuarios.
+*   Implementar los métodos HTTP reales en los conectores de Jira, Asana, Salesforce, HubSpot (actualmente solo tienen las definiciones de acciones en el registry).
+*   Agregar conectores: Trello, Linear, Monday.com con acciones completas.
 
-### P4. Conectores Adicionales
+### P4. Mejoras de UX
 
-*   Implementar conectores funcionales para: Trello, Asana, Jira, Salesforce, HubSpot.
-*   Agregar acciones de escritura a Gmail (archivar, mover, eliminar) y Slack (reaccionar, editar).
-
-### P5. Ejecución Real de Cron Jobs
-
-*   Conectar `Cron/Schedule` con un sistema de ejecución real (node-cron, BullMQ, o similar).
-*   Panel de administración de tareas programadas en la UI de Settings.
+*   Indicador visual en tiempo real del progreso del `TodoManager` (lista de pasos con estados).
+*   Panel de memoria en la UI principal (no solo en Settings).
+*   Notificaciones push cuando una tarea programada se ejecuta.

@@ -20,8 +20,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  integrations IntegrationAccount[]
-  resources    Resource[]
+  integrations   IntegrationAccount[]
+  resources      Resource[]
+  memoryEntries  MemoryEntry[]
+  scheduledTasks ScheduledTask[]
 }
 
 model Post {
@@ -35,7 +37,7 @@ model Post {
 }
 
 model IntegrationAccount {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   userId       String
   source       String
   name         String?
@@ -45,10 +47,10 @@ model IntegrationAccount {
   tokenType    String?
   expiresAt    DateTime?
   scopes       String?
-  metadata     String   @default("{}")
-  enabled      Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  metadata     String    @default("{}")
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -71,16 +73,16 @@ model ConnectorCredential {
 
 // Logs de auditoría de llamadas a conectores.
 model ConnectorAuditLog {
-  id          String   @id @default(cuid())
-  userId      String
-  source      String
-  action      String
-  success     Boolean
-  request     String   @default("{}")
-  response    String   @default("{}")
-  error       String?
-  durationMs  Int      @default(0)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  userId     String
+  source     String
+  action     String
+  success    Boolean
+  request    String   @default("{}")
+  response   String   @default("{}")
+  error      String?
+  durationMs Int      @default(0)
+  createdAt  DateTime @default(now())
 
   @@index([userId, source])
   @@index([createdAt])
@@ -88,38 +90,103 @@ model ConnectorAuditLog {
 
 // Eventos de webhooks recibidos de conectores externos.
 model ConnectorWebhookEvent {
-  id          String   @id @default(cuid())
-  source      String
-  eventType   String?
-  payload     String   @default("{}")
-  signature   String?
-  verified    Boolean  @default(false)
-  processed   Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  source    String
+  eventType String?
+  payload   String   @default("{}")
+  signature String?
+  verified  Boolean  @default(false)
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now())
 
   @@index([source, createdAt])
 }
 
 model Resource {
-  id            String   @id @default(cuid())
-  userId        String
-  source        String
-  externalId    String?
-  name          String
-  type          String
-  mimeType      String?
-  size          Int      @default(0)
-  url           String?
-  localPath     String?
-  thumbnailUrl  String?
-  metadata      String   @default("{}")
-  syncStatus    String   @default("synced")
-  lastSyncedAt  DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  userId       String
+  source       String
+  externalId   String?
+  name         String
+  type         String
+  mimeType     String?
+  size         Int      @default(0)
+  url          String?
+  localPath    String?
+  thumbnailUrl String?
+  metadata     String   @default("{}")
+  syncStatus   String   @default("synced")
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, source])
   @@index([source, externalId])
+}
+
+// ==================== MEMORIA DEL AGENTE ====================
+// Memoria episódica y semántica persistente del agente.
+// Complementa el almacenamiento en localStorage para que la memoria
+// sobreviva entre dispositivos y sesiones de usuario.
+model MemoryEntry {
+  id             String    @id @default(cuid())
+  userId         String
+  type           String    // "episodic" | "semantic" | "working"
+  key            String
+  value          String
+  tags           String    @default("[]") // JSON array de strings
+  confidence     Float     @default(1.0)
+  conversationId String?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([userId, key])
+  @@index([conversationId])
+}
+
+// ==================== TAREAS PROGRAMADAS (CRON) ====================
+// Tareas programadas gestionadas por el agente.
+model ScheduledTask {
+  id             String    @id @default(cuid())
+  userId         String
+  name           String
+  description    String
+  cronExpression String
+  enabled        Boolean   @default(true)
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  lastStatus     String?   // "success" | "failed" | "running"
+  lastError      String?
+  runCount       Int       @default(0)
+  conversationId String?
+  metadata       String    @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  logs CronJobLog[]
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([enabled, nextRunAt])
+}
+
+// Historial de ejecuciones de tareas programadas.
+model CronJobLog {
+  id         String   @id @default(cuid())
+  taskId     String
+  status     String   // "success" | "failed"
+  output     String?
+  error      String?
+  durationMs Int      @default(0)
+  startedAt  DateTime @default(now())
+
+  task ScheduledTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, startedAt])
 }

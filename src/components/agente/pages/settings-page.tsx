@@ -43,6 +43,11 @@ import {
   Database,
   Lightbulb,
   Plug,
+  Clock,
+  Plus,
+  Play,
+  Pause,
+  RefreshCw,
 } from "lucide-react";
 import { AI_MODELS, AGENT_LIST, AGENT_MODEL_ASSIGNMENTS } from "@/lib/mock-data";
 import { useMemoryStore } from "@/lib/memory/memory-store";
@@ -129,7 +134,7 @@ export function SettingsPage() {
         <p className="text-sm text-muted-foreground mb-8">Gestiona tu cuenta y conexión.</p>
 
         <Tabs defaultValue="api">
-          <TabsList className="grid grid-cols-2 sm:grid-cols-8 w-full mb-6">
+          <TabsList className="grid grid-cols-2 sm:grid-cols-9 w-full mb-6">
             <TabsTrigger value="api" className="text-xs gap-1">
               <KeyRound className="size-3" />
               <span className="hidden sm:inline">API</span>
@@ -157,6 +162,10 @@ export function SettingsPage() {
             <TabsTrigger value="security" className="text-xs gap-1">
               <Shield className="size-3" />
               <span className="hidden sm:inline">Seguridad</span>
+            </TabsTrigger>
+            <TabsTrigger value="schedule" className="text-xs gap-1">
+              <Clock className="size-3" />
+              <span className="hidden sm:inline">Tareas</span>
             </TabsTrigger>
             <TabsTrigger value="danger" className="text-xs gap-1 text-destructive">
               <AlertTriangle className="size-3" />
@@ -579,6 +588,13 @@ export function SettingsPage() {
             </Section>
           </TabsContent>
 
+          {/* Schedule Tab */}
+          <TabsContent value="schedule" className="space-y-4">
+            <Section icon={Clock} title="Tareas programadas">
+              <ScheduledTasksPanel />
+            </Section>
+          </TabsContent>
+
           {/* Danger Zone */}
           <TabsContent value="danger" className="space-y-4">
             <Section icon={AlertTriangle} title="Zona de peligro">
@@ -733,6 +749,241 @@ function EpisodicMemoryList() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ==================== PANEL DE TAREAS PROGRAMADAS ====================
+function ScheduledTasksPanel() {
+  const [tasks, setTasks] = useState<
+    {
+      id: string;
+      name: string;
+      description: string;
+      cronExpression: string;
+      enabled: boolean;
+      lastRunAt?: string;
+      nextRunAt?: string;
+      lastStatus?: string;
+      runCount: number;
+    }[]
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newTask, setNewTask] = useState({ name: "", description: "", cronExpression: "0 9 * * 1-5" });
+
+  const loadTasks = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/cron");
+      if (res.ok) {
+        const data = (await res.json()) as { tasks: typeof tasks };
+        setTasks(data.tasks ?? []);
+      }
+    } catch {
+      toast.error("Error al cargar tareas");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!newTask.name || !newTask.description || !newTask.cronExpression) {
+      toast.error("Completa todos los campos");
+      return;
+    }
+    try {
+      const res = await fetch("/api/cron", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newTask),
+      });
+      if (res.ok) {
+        toast.success("Tarea creada");
+        setCreating(false);
+        setNewTask({ name: "", description: "", cronExpression: "0 9 * * 1-5" });
+        await loadTasks();
+      } else {
+        toast.error("Error al crear tarea");
+      }
+    } catch {
+      toast.error("Error de conexión");
+    }
+  };
+
+  const handleToggle = async (id: string, enabled: boolean) => {
+    try {
+      await fetch(`/api/cron?id=${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, enabled } : t)));
+      toast.success(enabled ? "Tarea activada" : "Tarea pausada");
+    } catch {
+      toast.error("Error al actualizar tarea");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`/api/cron?id=${id}`, { method: "DELETE" });
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+      toast.success("Tarea eliminada");
+    } catch {
+      toast.error("Error al eliminar tarea");
+    }
+  };
+
+  // Cargar tareas al montar
+  useState(() => {
+    void loadTasks();
+  });
+
+  const CRON_PRESETS = [
+    { label: "Cada 5 minutos", value: "*/5 * * * *" },
+    { label: "Cada hora", value: "0 * * * *" },
+    { label: "Diario a las 9am", value: "0 9 * * *" },
+    { label: "Lunes a viernes 9am", value: "0 9 * * 1-5" },
+    { label: "Primer día del mes", value: "0 0 1 * *" },
+    { label: "Cada domingo", value: "0 10 * * 0" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          El agente ejecutará estas tareas automáticamente según el horario definido.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={loadTasks} disabled={loading}>
+            <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+          </Button>
+          <Button size="sm" onClick={() => setCreating(!creating)}>
+            <Plus className="size-3.5" />
+            Nueva tarea
+          </Button>
+        </div>
+      </div>
+
+      {/* Formulario de nueva tarea */}
+      {creating && (
+        <div className="p-3 rounded-lg border border-border bg-muted/20 space-y-3">
+          <h3 className="text-xs font-semibold">Nueva tarea programada</h3>
+          <div className="space-y-2">
+            <div>
+              <Label className="text-xs">Nombre</Label>
+              <Input
+                placeholder="Ej: Resumen diario de emails"
+                value={newTask.name}
+                onChange={(e) => setNewTask((p) => ({ ...p, name: e.target.value }))}
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Descripción (qué debe hacer el agente)</Label>
+              <Input
+                placeholder="Ej: Revisar emails sin leer y generar un resumen"
+                value={newTask.description}
+                onChange={(e) => setNewTask((p) => ({ ...p, description: e.target.value }))}
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Horario</Label>
+              <div className="flex gap-2 mt-1">
+                <Select
+                  value={newTask.cronExpression}
+                  onValueChange={(v) => setNewTask((p) => ({ ...p, cronExpression: v }))}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CRON_PRESETS.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>
+                        <span className="text-xs">{p.label}</span>
+                        <span className="text-[10px] text-muted-foreground ml-2 font-mono">{p.value}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1 font-mono">{newTask.cronExpression}</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleCreate}>
+              <Check className="size-3.5" />
+              Crear
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setCreating(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Lista de tareas */}
+      {tasks.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic py-4 text-center">
+          No hay tareas programadas. Crea una para que el agente trabaje de forma autónoma.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {tasks.map((task) => (
+            <div key={task.id} className="p-3 rounded-lg border border-border bg-background/50">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-medium truncate">{task.name}</span>
+                    {task.lastStatus && (
+                      <Badge
+                        variant={task.lastStatus === "success" ? "default" : "destructive"}
+                        className="text-[9px] px-1.5 py-0"
+                      >
+                        {task.lastStatus === "success" ? "OK" : "Error"}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">{task.description}</p>
+                  <div className="flex items-center gap-3 mt-1.5">
+                    <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                      {task.cronExpression}
+                    </span>
+                    {task.nextRunAt && (
+                      <span className="text-[10px] text-muted-foreground">
+                        Próxima: {new Date(task.nextRunAt).toLocaleString("es-ES")}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">{task.runCount} ejecuciones</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0"
+                    onClick={() => handleToggle(task.id, !task.enabled)}
+                    title={task.enabled ? "Pausar" : "Activar"}
+                  >
+                    {task.enabled ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0 text-destructive hover:text-destructive"
+                    onClick={() => handleDelete(task.id)}
+                    title="Eliminar"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
