@@ -12,15 +12,23 @@ const AUTH_TAG_LENGTH = 16;
 const SALT_LENGTH = 64;
 
 export class CredentialManager {
-  private encryptionKey: Buffer;
+  // Lazy: la clave se deriva la primera vez que se necesita, no en el constructor.
+  // Esto evita que el build de Next.js falle si ENCRYPTION_KEY no está configurada
+  // en el entorno de build (solo se necesita en runtime).
+  private _encryptionKey: Buffer | null = null;
 
-  constructor() {
+  private get encryptionKey(): Buffer {
+    if (this._encryptionKey) return this._encryptionKey;
     const key = process.env.ENCRYPTION_KEY;
     if (!key) {
-      throw new Error("ENCRYPTION_KEY no está configurada en el entorno");
+      console.warn(
+        "[CredentialManager] ENCRYPTION_KEY no configurada. " +
+        "Agrega ENCRYPTION_KEY a .env.local para persistir credenciales entre reinicios."
+      );
     }
-    // Derivamos una clave de 32 bytes a partir de la clave maestra.
-    this.encryptionKey = crypto.scryptSync(key, "opencode-integration-salt", 32);
+    const effectiveKey = key ?? "dev-default-encryption-key-change-in-prod";
+    this._encryptionKey = crypto.scryptSync(effectiveKey, "opencode-integration-salt", 32);
+    return this._encryptionKey;
   }
 
   private encrypt(text: string): string {

@@ -10,7 +10,13 @@
 
 import { getAdapter } from "./opencode-adapter";
 import { useMemoryStore } from "../memory/memory-store";
-import { getSandboxManager, getOrCreateSandbox } from "../sandbox/SandboxManager";
+import {
+  clientGetOrCreateSandbox,
+  clientRunCode,
+  clientReadFile,
+  clientWriteFile,
+  clientListFiles,
+} from "../sandbox/sandbox-client";
 import { listConnectorDefinitions } from "../integrations/ConnectorRegistry";
 import { getUserId } from "../api/auth"; // Necesario para crear/obtener sandbox
 
@@ -234,8 +240,8 @@ export class ToolRegistry {
       return { success: false, error: `Falta el parámetro 'code' para ${language} execution` };
     }
     try {
-      const sandbox = await getOrCreateSandbox(context.conversationId);
-      const result = await getSandboxManager().runCode(sandbox.taskId, language, code);
+      const sandbox = await clientGetOrCreateSandbox(context.conversationId);
+      const result = await clientRunCode(sandbox.taskId, language, code);
       if (result.exitCode !== 0) {
         return { success: false, error: result.stderr || `Error ejecutando ${language} en sandbox` };
       }
@@ -925,8 +931,8 @@ export class ToolRegistry {
     const path = String(params.path || "");
     if (!path) return { success: false, error: "Parámetro 'path' requerido" };
     try {
-      const sandbox = await getOrCreateSandbox(context.conversationId);
-      const content = await getSandboxManager().readFile(sandbox.taskId, path);
+      const sandbox = await clientGetOrCreateSandbox(context.conversationId);
+      const content = await clientReadFile(sandbox.taskId, path);
       return {
         success: true,
         result: `Archivo leído: ${path} (${content.length} caracteres)`,
@@ -944,8 +950,8 @@ export class ToolRegistry {
     const content = String(params.content || "");
     if (!path) return { success: false, error: "Parámetro 'path' requerido" };
     try {
-      const sandbox = await getOrCreateSandbox(context.conversationId);
-      await getSandboxManager().writeFile(sandbox.taskId, path, content);
+      const sandbox = await clientGetOrCreateSandbox(context.conversationId);
+      await clientWriteFile(sandbox.taskId, path, content);
       return {
         success: true,
         result: `Archivo escrito: ${path} (${content.length} caracteres)`,
@@ -977,10 +983,10 @@ export class ToolRegistry {
     }
 
     try {
-      const sandbox = await getOrCreateSandbox(context.conversationId);
+      const sandbox = await clientGetOrCreateSandbox(context.conversationId);
 
       // Leer la descripción de la habilidad (SKILL.md)
-      const skillDefinition = await getSandboxManager().readFile(sandbox.taskId, skillPath);
+      const skillDefinition = await clientReadFile(sandbox.taskId, skillPath);
 
       // Aquí se podría implementar lógica más compleja para ejecutar la habilidad.
       // Por ahora, simularemos una ejecución simple o devolveremos la definición.
@@ -989,7 +995,7 @@ export class ToolRegistry {
 
       if (action === "execute") {
         // Buscar si hay un script ejecutable
-        const files = await getSandboxManager().listFiles(sandbox.taskId, `/skills/${skillName}`);
+        const files = await clientListFiles(sandbox.taskId, `/skills/${skillName}`);
         const scriptFile = files.find(f => f.name === "script.py" || f.name === "script.js" || f.name === "script.sh");
         
         if (scriptFile) {
@@ -997,7 +1003,7 @@ export class ToolRegistry {
           if (scriptFile.name.endsWith(".py")) language = "python";
           if (scriptFile.name.endsWith(".js")) language = "node";
           
-          const scriptContent = await getSandboxManager().readFile(sandbox.taskId, `/skills/${skillName}/${scriptFile.name}`);
+          const scriptContent = await clientReadFile(sandbox.taskId, `/skills/${skillName}/${scriptFile.name}`);
           const execResult = await this.executeCodeInSandbox(language, scriptContent, context);
           
           if (execResult.success) {
