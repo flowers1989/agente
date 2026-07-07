@@ -6,13 +6,13 @@ import { BrowserSession, type BrowserActionResult, type BrowserSessionInfo } fro
 export class BrowserControlConnector {
   private sessions = new Map<string, BrowserSession>();
 
-  async createSession(userId: string, options: { timeoutMs?: number } = {}): Promise<BrowserSession> {
+  async createSession(userId: string, options: { timeoutMs?: number; headless?: boolean } = {}): Promise<BrowserSession> {
     const id = `browser-${userId}-${Date.now()}`;
     const session = new BrowserSession(id, userId, {
-      ...options,
+      timeoutMs: options.timeoutMs,
       onExpire: () => this.sessions.delete(id),
     });
-    await session.start();
+    await session.start(options.headless);
     this.sessions.set(id, session);
     return session;
   }
@@ -77,6 +77,12 @@ export class BrowserControlConnector {
         return session.executeScript(String(params.script));
       case "getDOMRepresentation":
         return session.getDOMRepresentation();
+      case "oauthFlow":
+        return session.runOAuthFlow(
+          String(params.authUrl),
+          String(params.callbackUrlPrefix),
+          Number(params.timeoutMs || 5 * 60 * 1000)
+        );
       default:
         return { success: false, error: `Acción no soportada: ${action}` };
     }

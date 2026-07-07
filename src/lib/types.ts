@@ -248,6 +248,19 @@ export interface Conversation {
   learnedPatterns?: string[];
 }
 
+export interface Attachment {
+  /** URL pública accesible desde el navegador (ej: /api/uploads/1234_foo.png) */
+  url: string;
+  /** Nombre original del archivo */
+  name: string;
+  /** MIME type (image/png, image/jpeg, ...) */
+  type: string;
+  /** Tamaño en bytes (opcional) */
+  size?: number;
+  /** Thumbnail URL si está disponible */
+  thumbnailUrl?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -256,6 +269,8 @@ export interface ChatMessage {
   agentStatus?: AgentStatus;
   steps?: ExecutionStep[];
   output?: MessageOutput;
+  // Archivos (imágenes, etc.) adjuntados a este mensaje
+  attachments?: Attachment[];
   // Referencias a memoria usada en esta respuesta
   memoryReferences?: { type: MemoryType; key: string }[];
 }

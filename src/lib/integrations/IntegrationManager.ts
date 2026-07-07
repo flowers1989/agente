@@ -7,6 +7,8 @@ import { credentialManager } from "./managers/CredentialManager";
 import { cacheManager } from "./managers/CacheManager";
 import { LocalFileConnector } from "./connectors/LocalFileConnector";
 import { FigmaConnector } from "./connectors/FigmaConnector";
+import { GithubConnector } from "./connectors/GithubConnector";
+import { GoogleDriveConnector } from "./connectors/GoogleDriveConnector";
 import type {
   IntegrationSource,
   ListFilters,
@@ -24,6 +26,8 @@ export class IntegrationManager {
   constructor() {
     this.registerConnector("local", LocalFileConnector);
     this.registerConnector("figma", FigmaConnector);
+    this.registerConnector("github", GithubConnector);
+    this.registerConnector("google-drive", GoogleDriveConnector);
   }
 
   registerConnector(

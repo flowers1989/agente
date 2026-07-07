@@ -27,6 +27,16 @@ export abstract class OAuth2Connector extends RestConnector {
     this.appCredentials = credentials;
   }
 
+  /**
+   * Parámetros extra a incluir en la URL de autorización.
+   * Las subclases pueden sobrescribir este getter para añadir
+   * parámetros específicos del proveedor (por ejemplo
+   * `access_type=offline` y `prompt=consent` para Google).
+   */
+  protected getAuthorizationUrlParams(): Record<string, string> {
+    return {};
+  }
+
   getAuthorizationUrl(state: string): string {
     if (!this.appCredentials.clientId || !this.appCredentials.redirectUri) {
       throw new Error(`OAuth2 no configurado para ${this.source}`);
@@ -43,6 +53,10 @@ export abstract class OAuth2Connector extends RestConnector {
       scope: scopes.join(" "),
       state,
     });
+
+    for (const [key, value] of Object.entries(this.getAuthorizationUrlParams())) {
+      params.set(key, value);
+    }
 
     return `${this.authUrl}?${params.toString()}`;
   }

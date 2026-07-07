@@ -22,6 +22,7 @@ interface FigmaConfigDialogProps {
 
 export function FigmaConfigDialog({ open, onOpenChange, onConnected }: FigmaConfigDialogProps) {
   const [token, setToken] = useState("");
+  const [teamId, setTeamId] = useState("");
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -39,14 +40,20 @@ export function FigmaConfigDialog({ open, onOpenChange, onConnected }: FigmaConf
           source: "figma",
           accessToken: token,
           name: "Figma personal",
+          metadata: teamId.trim() ? { teamId: teamId.trim() } : undefined,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      toast.success("Token de Figma guardado");
+      toast.success(
+        teamId.trim()
+          ? "Token y Team ID de Figma guardados"
+          : "Token de Figma guardado"
+      );
       setToken("");
+      setTeamId("");
       onOpenChange(false);
       onConnected?.();
     } catch (error) {
@@ -75,15 +82,35 @@ export function FigmaConfigDialog({ open, onOpenChange, onConnected }: FigmaConf
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2 py-2">
-          <Label htmlFor="figma-token">Token de acceso personal</Label>
-          <Input
-            id="figma-token"
-            type="password"
-            placeholder="figd_..."
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-          />
+        <div className="space-y-3 py-2">
+          <div className="space-y-1">
+            <Label htmlFor="figma-token">Token de acceso personal</Label>
+            <Input
+              id="figma-token"
+              type="password"
+              placeholder="figd_..."
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="figma-teamid">
+              Team ID (opcional pero necesario para listar archivos)
+            </Label>
+            <Input
+              id="figma-teamid"
+              placeholder="1234567890"
+              value={teamId}
+              onChange={(e) => setTeamId(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              El Team ID se extrae de la URL de un archivo de Figma:
+              figma.com/file/&lt;fileKey&gt;/&hellip; dentro de un team.
+              Encuéntralo en la URL del equipo en figma.com, o usa{" "}
+              <code className="bg-muted px-1 rounded">GET /v1/me</code> con tu
+              token para ver tus equipos.
+            </p>
+          </div>
         </div>
 
         <DialogFooter>

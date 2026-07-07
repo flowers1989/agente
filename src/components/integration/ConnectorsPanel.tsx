@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { CheckCircle2, XCircle, Loader2, Plug, ExternalLink, KeyRound, Settings2 } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, Plug, ExternalLink, KeyRound, Settings2, Globe } from "lucide-react";
 import { toast } from "sonner";
 import type { ConnectorDefinition, IntegrationSource, OAuth2AppCredentials } from "@/lib/integrations/types";
 
@@ -29,6 +29,7 @@ export function ConnectorsPanel() {
   const [apiKey, setApiKey] = useState("");
   const [oauthConfig, setOauthConfig] = useState<OAuth2AppCredentials>({});
   const [saving, setSaving] = useState(false);
+  const [browserFlowSource, setBrowserFlowSource] = useState<IntegrationSource | null>(null);
 
   const fetchConnectors = async () => {
     try {
@@ -56,6 +57,36 @@ export function ConnectorsPanel() {
   useEffect(() => {
     fetchConnectors();
   }, []);
+
+  const handleBrowserFlow = async (connector: ConnectorStatus) => {
+    if (connector.supportsOAuth && !connector.appConfigured) {
+      toast.error("Primero configura OAuth (Client ID, Client Secret y Redirect URI) antes de usar el flujo por navegador.");
+      setConfiguringOAuth(connector);
+      return;
+    }
+    if (!connector.supportsOAuth) {
+      toast.error("Este conector no soporta OAuth; usa API key.");
+      return;
+    }
+    setBrowserFlowSource(connector.source);
+    try {
+      const res = await fetch(`/api/connectors/${connector.source}/oauth/browser-flow`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headless: false, timeoutMs: 5 * 60 * 1000 }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Flujo OAuth por navegador falló");
+      }
+      toast.success(`${connector.name} conectado vía navegador`);
+      await fetchConnectors();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error en flujo por navegador");
+    } finally {
+      setBrowserFlowSource(null);
+    }
+  };
 
   const handleConnect = async (connector: ConnectorStatus) => {
     if (connector.supportsOAuth && !connector.appConfigured) {
@@ -201,29 +232,48 @@ export function ConnectorsPanel() {
                       Desconectar
                     </Button>
                   ) : (
-                    <Button
-                      size="sm"
-                      className="w-full text-xs"
-                      onClick={() => handleConnect(connector)}
-                      disabled={!connector.supportsOAuth && !connector.supportsApiKey}
-                    >
-                      {needsOAuthConfig ? (
-                        <>
-                          <Settings2 className="size-3 mr-1" />
-                          Configurar OAuth
-                        </>
-                      ) : connector.supportsOAuth ? (
-                        <>
-                          <ExternalLink className="size-3 mr-1" />
-                          Conectar
-                        </>
-                      ) : (
-                        <>
-                          <KeyRound className="size-3 mr-1" />
-                          Configurar
-                        </>
+                    <>
+                      <Button
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => handleConnect(connector)}
+                        disabled={!connector.supportsOAuth && !connector.supportsApiKey}
+                      >
+                        {needsOAuthConfig ? (
+                          <>
+                            <Settings2 className="size-3 mr-1" />
+                            Configurar OAuth
+                          </>
+                        ) : connector.supportsOAuth ? (
+                          <>
+                            <ExternalLink className="size-3 mr-1" />
+                            Conectar
+                          </>
+                        ) : (
+                          <>
+                            <KeyRound className="size-3 mr-1" />
+                            Configurar
+                          </>
+                        )}
+                      </Button>
+                      {connector.supportsOAuth && !needsOAuthConfig && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="text-xs"
+                          onClick={() => handleBrowserFlow(connector)}
+                          disabled={browserFlowSource === connector.source}
+                          title="Abrir el navegador controlado por el agente y completar OAuth automáticamente"
+                        >
+                          {browserFlowSource === connector.source ? (
+                            <Loader2 className="size-3 mr-1 animate-spin" />
+                          ) : (
+                            <Globe className="size-3 mr-1" />
+                          )}
+                          Navegador
+                        </Button>
                       )}
-                    </Button>
+                    </>
                   )}
                 </div>
               </CardContent>
@@ -292,7 +342,7 @@ export function ConnectorsPanel() {
               <Input
                 value={oauthConfig.redirectUri || ""}
                 onChange={(e) => setOauthConfig((c) => ({ ...c, redirectUri: e.target.value }))}
-                placeholder="http://localhost:3000/api/connectors/oauth/callback?source=..."
+                placeholder="http://localhost:3000/api/connectors/oauth/callback"
                 className="font-mono text-xs"
               />
             </div>

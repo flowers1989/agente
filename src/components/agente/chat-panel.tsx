@@ -20,14 +20,19 @@ import {
   Download,
   Eye,
   Zap,
+  Wifi,
+  WifiOff,
+  Paperclip,
+  X,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { formatTime, formatNumber, formatCost } from "@/lib/mock-data";
-import type { ExecutionStep, ChatMessage } from "@/lib/types";
+import type { ExecutionStep, ChatMessage, Attachment } from "@/lib/types";
 import { useTask } from "@/hooks/use-task";
 import { IntegrationMenu } from "@/components/integration/IntegrationMenu";
+import { ConnectorsDialog } from "@/components/integration/ConnectorsDialog";
 import { exportReport, type ExportFormat } from "@/lib/export-report";
 import { Markdown } from "@/components/ui/markdown";
 import {
@@ -52,9 +57,14 @@ export function ChatPanel() {
   const user = useAppStore((s) => s.user);
   const agentMode = useAppStore((s) => s.agentMode);
   const toggleAgentMode = useAppStore((s) => s.toggleAgentMode);
+  const internetMode = useAppStore((s) => s.internetMode);
+  const toggleInternetMode = useAppStore((s) => s.toggleInternetMode);
   const isWorking = useExecutionStore((s) => s.isWorking);
 
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -76,19 +86,70 @@ export function ChatPanel() {
     }
   }, [input]);
 
+  const handleFileSelect = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) return;
+    setUploading(true);
+    try {
+      const uploaded: Attachment[] = [];
+      for (const file of imageFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/integrations/local/upload", {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          console.warn("Upload failed for", file.name);
+          continue;
+        }
+        const data = (await res.json()) as { resource?: Attachment };
+        if (data.resource) {
+          uploaded.push({
+            url: data.resource.url,
+            name: data.resource.name,
+            type: data.resource.type?.startsWith("image/") ? data.resource.type : (file.type || "image/png"),
+            size: data.resource.size,
+            thumbnailUrl: data.resource.thumbnailUrl,
+          });
+        }
+      }
+      if (uploaded.length > 0) {
+        setAttachments((prev) => [...prev, ...uploaded]);
+      }
+    } catch (error) {
+      console.error("[ChatPanel] Upload failed:", error);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachment = (url: string) => {
+    setAttachments((prev) => prev.filter((a) => a.url !== url));
+  };
+
   const handleSubmit = () => {
-    if (!input.trim()) return;
+    const hasInput = !!input.trim();
+    const hasAttachments = attachments.length > 0;
+    if (!hasInput && !hasAttachments) return;
+    if (uploading) return; // esperar a que terminen de subir las imágenes
     const obj = input.trim();
+    const currentAttachments = attachments;
     setInput("");
+    setAttachments([]);
 
     if (currentConversationId) {
       // Continuar conversación existente
-      sendMessage(currentConversationId, obj);
+      sendMessage(currentConversationId, obj, currentAttachments);
     } else {
       // Crear nueva conversación
-      createConversation(obj);
+      createConversation(obj, currentAttachments);
     }
   };
+
+  const canSubmit = (!!input.trim() || attachments.length > 0) && !uploading;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -151,6 +212,12 @@ export function ChatPanel() {
           disabled={isWorking}
           agentMode={agentMode}
           onToggleMode={toggleAgentMode}
+          attachments={attachments}
+          onFileSelect={handleFileSelect}
+          onRemoveAttachment={removeAttachment}
+          uploading={uploading}
+          fileInputRef={fileInputRef}
+          canSubmit={canSubmit}
         />
       </div>
     );
@@ -168,6 +235,7 @@ export function ChatPanel() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <IntegrationMenu />
+          <ConnectorsDialog />
           {/* Botón de modo: Rápido / Calidad */}
           <button
             onClick={toggleAgentMode}
@@ -185,6 +253,25 @@ export function ChatPanel() {
               <><Zap className="size-3" /><span className="hidden sm:inline">Rápido</span></>
             ) : (
               <><Sparkles className="size-3" /><span className="hidden sm:inline">Calidad</span></>
+            )}
+          </button>
+          {/* Botón Internet: activa búsqueda web en tiempo real */}
+          <button
+            onClick={toggleInternetMode}
+            disabled={isWorking}
+            title={internetMode ? "Modo Internet ON: el agente buscará en internet antes de responder. Clic para desactivar." : "Modo Internet OFF: el agente solo usa su conocimiento. Clic para activar búsqueda en tiempo real."}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all border",
+              internetMode
+                ? "border-sky-500/50 text-sky-400 bg-sky-500/10 hover:bg-sky-500/20"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30",
+              isWorking && "opacity-40 cursor-not-allowed"
+            )}
+          >
+            {internetMode ? (
+              <><Wifi className="size-3" /><span className="hidden sm:inline">Internet</span></>
+            ) : (
+              <><WifiOff className="size-3" /><span className="hidden sm:inline">Internet</span></>
             )}
           </button>
           {isWorking && (
@@ -222,6 +309,12 @@ export function ChatPanel() {
         disabled={isWorking}
         agentMode={agentMode}
         onToggleMode={toggleAgentMode}
+        attachments={attachments}
+        onFileSelect={handleFileSelect}
+        onRemoveAttachment={removeAttachment}
+        uploading={uploading}
+        fileInputRef={fileInputRef}
+        canSubmit={canSubmit}
       />
     </div>
   );
@@ -236,6 +329,12 @@ function ChatInput({
   disabled,
   agentMode,
   onToggleMode,
+  attachments,
+  onFileSelect,
+  onRemoveAttachment,
+  uploading,
+  fileInputRef,
+  canSubmit,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -245,24 +344,77 @@ function ChatInput({
   disabled?: boolean;
   agentMode?: "economy" | "quality";
   onToggleMode?: () => void;
+  attachments?: Attachment[];
+  onFileSelect?: (files: FileList | null) => void;
+  onRemoveAttachment?: (url: string) => void;
+  uploading?: boolean;
+  fileInputRef?: React.RefObject<HTMLInputElement | null>;
+  canSubmit?: boolean;
 }) {
   return (
     <div className="p-3 border-t border-border shrink-0">
       <div className="max-w-3xl mx-auto">
+        {/* Previsualización de imágenes adjuntadas (estilo Manus/simple) */}
+        {attachments && attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2 px-1">
+            {attachments.map((a) => (
+              <div key={a.url} className="relative group size-16 rounded-md overflow-hidden border border-border bg-muted">
+                <img
+                  src={a.thumbnailUrl || a.url}
+                  alt={a.name}
+                  className="size-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => onRemoveAttachment?.(a.url)}
+                  className="absolute top-0 right-0 size-5 rounded-bl-md bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-colors"
+                  title="Quitar"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="relative rounded-lg border border-border bg-card focus-within:border-foreground/30 transition-colors">
           <Textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={disabled ? "El agente está trabajando..." : "Pide lo que necesites..."}
+            placeholder={disabled ? "El agente está trabajando..." : "Pide lo que necesites... o adjunta una imagen"}
             disabled={disabled}
-            className="min-h-[44px] max-h-[200px] resize-none bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-sm px-3 py-2.5 pr-12"
+            className="min-h-[44px] max-h-[200px] resize-none bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-sm px-3 py-2.5 pl-10 pr-12"
             rows={1}
           />
+          {/* Botón adjuntar imagen (clip) */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => onFileSelect?.(e.target.files)}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef?.current?.click()}
+            disabled={disabled || uploading}
+            title="Adjuntar imagen"
+            className={cn(
+              "absolute left-2 bottom-2.5 size-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
+              (disabled || uploading) && "opacity-50 cursor-not-allowed"
+            )}
+          >
+            {uploading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Paperclip className="size-3.5" />
+            )}
+          </button>
           <Button
             onClick={onSubmit}
-            disabled={!input.trim() || disabled}
+            disabled={!canSubmit || disabled}
             size="icon"
             className="absolute right-1.5 bottom-1.5 size-7 rounded-md"
           >
@@ -309,6 +461,25 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         className="flex justify-end"
       >
         <div className="max-w-[85%] bg-foreground text-background rounded-2xl rounded-br-md px-3.5 py-2.5">
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {message.attachments.map((a) => (
+                <a
+                  key={a.url}
+                  href={a.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block size-24 rounded-md overflow-hidden border border-background/30 hover:opacity-90 transition-opacity"
+                >
+                  <img
+                    src={a.thumbnailUrl || a.url}
+                    alt={a.name}
+                    className="size-full object-cover"
+                  />
+                </a>
+              ))}
+            </div>
+          )}
           <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
           <div className="text-[10px] opacity-60 mt-1.5">
             {formatTime(message.timestamp)}

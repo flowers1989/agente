@@ -32,6 +32,7 @@ interface AppState {
   routeParams: Record<string, string>;
   sidebarCollapsed: boolean;
   agentMode: "economy" | "quality";
+  internetMode: boolean;
 
   // Actions: Auth
   login: (email: string, name: string) => void;
@@ -51,6 +52,8 @@ interface AppState {
   setTheme: (theme: "dark" | "light") => void;
   toggleSidebar: () => void;
   toggleAgentMode: () => void;
+  toggleInternetMode: () => void;
+  setInternetMode: (enabled: boolean) => void;
   navigate: (route: Route, params?: Record<string, string>) => void;
 }
 
@@ -84,6 +87,7 @@ export const useAppStore = create<AppState>()(
       routeParams: {},
       sidebarCollapsed: false,
       agentMode: "economy" as const,
+      internetMode: false,
 
       // Auth
       login: (email, name) => {
@@ -244,6 +248,8 @@ export const useAppStore = create<AppState>()(
 
       toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
       toggleAgentMode: () => set({ agentMode: get().agentMode === "economy" ? "quality" : "economy" }),
+      toggleInternetMode: () => set({ internetMode: !get().internetMode }),
+      setInternetMode: (enabled) => set({ internetMode: enabled }),
 
       navigate: (route, params = {}) => {
         const isAuth = get().isAuthenticated || !!get().user || get().onboarded;

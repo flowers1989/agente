@@ -57,3 +57,13 @@ server.log
 *.sqlite
 *.sqlite3
 db/custom.db
+
+# Uploads de archivos locales del usuario (imágenes, etc.)
+/upload/
+/uploads/
+
+# Sesiones de Playwright MCP (snapshots, screenshots)
+/.playwright-mcp/
+
+# Archivo de proceso puerto
+3001

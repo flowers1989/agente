@@ -15,7 +15,7 @@ export function middleware(request: NextRequest) {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    "connect-src 'self' https://opencode.ai",
+    "connect-src 'self' https://opencode.ai https://api.github.com https://www.googleapis.com https://accounts.google.com https://api.figma.com https://slack.com https://api.notion.com https://api.atlassian.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

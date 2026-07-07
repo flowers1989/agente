@@ -4,8 +4,9 @@ import { motion } from "framer-motion";
 import { useAppStore } from "@/lib/store-app";
 import { Button } from "@/components/ui/button";
 import { LogoMark } from "@/components/agente/logo";
-import { ArrowRight, Moon, Sun, Check, Sparkles } from "lucide-react";
+import { ArrowRight, Moon, Sun, Check, Sparkles, Plug } from "lucide-react";
 import { LANDING_STATS, LANDING_EXAMPLES } from "@/lib/mock-data";
+import { ConnectorsDialog } from "@/components/integration/ConnectorsDialog";
 
 const ICON_MAP: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
   search: Search,
@@ -216,6 +217,7 @@ export function LandingPage() {
           <div className="flex items-center gap-6">
             <button className="hover:text-foreground transition-colors">Privacidad</button>
             <button className="hover:text-foreground transition-colors">Términos</button>
+            <ConnectorsDialog variant="button" />
             <button className="hover:text-foreground transition-colors" onClick={() => navigate("settings")}>
               Configuración
             </button>

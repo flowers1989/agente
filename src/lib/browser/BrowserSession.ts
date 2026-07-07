@@ -271,4 +271,77 @@ export class BrowserSession {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
+
+  async runOAuthFlow(
+    authUrl: string,
+    callbackUrlPrefix: string,
+    timeoutMs = 5 * 60 * 1000
+  ): Promise<BrowserActionResult> {
+    if (!this.page || !this.context) return { success: false, error: "Sesión no iniciada" };
+    try {
+      let capturedUrl: string | null = null;
+
+      await this.context.route(`${callbackUrlPrefix}*`, async (route) => {
+        capturedUrl = route.request().url();
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: `<!doctype html><html><head><title>Conectado</title></head>
+            <body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0a0a0a;color:#e5e5e5">
+              <div style="text-align:center">
+                <h2 style="margin:0 0 .5rem">✓ Conectado</h2>
+                <p style="color:#9ca3af;margin:0">Puedes cerrar esta ventana.</p>
+              </div>
+              <script>setTimeout(()=>window.close(),1500);</script>
+            </body></html>`,
+        });
+      });
+
+      await this.page.goto(authUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+      this.touch();
+      this.log(`oauthFlow:navigate ${authUrl}`);
+
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (capturedUrl) break;
+        const current = this.page.url();
+        if (current.startsWith(callbackUrlPrefix)) {
+          capturedUrl = current;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        this.touch();
+      }
+
+      if (!capturedUrl) {
+        return {
+          success: false,
+          error: "Timeout esperando callback de OAuth en el navegador",
+        };
+      }
+
+      const url = new URL(capturedUrl);
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      const errorParam = url.searchParams.get("error");
+
+      if (errorParam) {
+        return {
+          success: false,
+          error: `OAuth rechazado por el proveedor: ${errorParam}`,
+        };
+      }
+      if (!code) {
+        return { success: false, error: "No se recibió 'code' en el callback de OAuth" };
+      }
+
+      this.log(`oauthFlow:capture code`);
+      return { success: true, data: { code, state, callbackUrl: capturedUrl } };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 }

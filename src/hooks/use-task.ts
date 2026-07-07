@@ -5,6 +5,7 @@ import { useAppStore } from "@/lib/store-app";
 import { useMemoryStore } from "@/lib/memory/memory-store";
 import { toast } from "sonner";
 import { detectCategory } from "@/lib/mock-data";
+import type { Attachment } from "@/lib/types";
 
 // Hook de tareas/conversaciones
 export function useTask() {
@@ -20,12 +21,17 @@ export function useTask() {
 
   const currentConversation = conversations.find((c) => c.id === currentConversationId);
 
-  const handleCreate = (objective: string) => {
-    if (!objective.trim()) {
+  const handleCreate = (objective: string, attachments?: Attachment[]) => {
+    if (!objective.trim() && (!attachments || attachments.length === 0)) {
+      toast.error("Describe tu objetivo o adjunta una imagen");
+      return null;
+    }
+    const finalObjective = objective.trim() || (attachments && attachments.length ? "Analiza la(s) imagen(es) adjunta(s)" : "");
+    if (!finalObjective) {
       toast.error("Describe tu objetivo");
       return null;
     }
-    const id = createConversation(objective);
+    const id = createConversation(finalObjective, attachments);
     useAppStore.getState().navigate("app");
     return id;
   };
@@ -56,13 +62,14 @@ export function useTask() {
     toast.success("Conversación eliminada");
   };
 
-  const handleSendMessage = (conversationId: string, content: string) => {
-    if (!content.trim()) return;
+  const handleSendMessage = (conversationId: string, content: string, attachments?: Attachment[]) => {
+    if (!content.trim() && (!attachments || attachments.length === 0)) return;
     addMessage(conversationId, {
       id: `m-${Date.now()}`,
       role: "user",
-      content,
+      content: content.trim() || (attachments && attachments.length ? "Adjunto imagen(es)" : ""),
       timestamp: new Date().toISOString(),
+      attachments: attachments && attachments.length > 0 ? attachments : undefined,
     });
   };
 

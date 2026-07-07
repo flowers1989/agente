@@ -484,29 +484,30 @@ export class ToolRegistry {
   };
 
   private async runWebExtraction(urls: string[], context: ToolContext): Promise<ToolExecutionResult> {
-    const navigate = this.createBrowserExecutor("navigate", ["url"]);
-    const extract = this.createBrowserExecutor("extractText", []);
-
     const extracted: Array<{ url: string; title: string; text: string }> = [];
 
     for (const url of urls.slice(0, 3)) {
       try {
-        const navResult = await navigate({ url }, context);
-        if (!navResult.success) continue;
-
-        const extractResult = await extract({}, context);
-        if (!extractResult.success) continue;
-
-        const text = typeof extractResult.data === "string"
-          ? extractResult.data
-          : (extractResult.data as { data?: string })?.data || "";
-
-        // Extraer título del resultado de navegación
-        const title = (navResult.data as { title?: string } | undefined)?.title || url;
-
-        extracted.push({ url, title, text: text.slice(0, 4000) });
+        const fetched = await this.fetchViaApi(url);
+        if (fetched) {
+          extracted.push({
+            url: fetched.url,
+            title: fetched.title,
+            text: fetched.text.slice(0, 5000),
+          });
+          continue;
+        }
       } catch (error) {
-        console.warn(`[ToolRegistry] Failed to extract ${url}:`, error);
+        console.warn(`[ToolRegistry] /api/webfetch failed for ${url}:`, error);
+      }
+
+      try {
+        const browserExtracted = await this.extractViaBrowser(url, context);
+        if (browserExtracted) {
+          extracted.push(browserExtracted);
+        }
+      } catch (error) {
+        console.warn(`[ToolRegistry] Browser extraction failed for ${url}:`, error);
       }
     }
 
@@ -520,9 +521,53 @@ export class ToolRegistry {
 
     return {
       success: true,
-      result: `Contenido extraído de ${extracted.length} URL(s). Total: ${combinedText.length} caracteres.\n\n${combinedText.slice(0, 6000)}${combinedText.length > 6000 ? "\n\n..." : ""}`,
+      result: `Contenido extraído de ${extracted.length} URL(s). Total: ${combinedText.length} caracteres.\n\n${combinedText.slice(0, 8000)}${combinedText.length > 8000 ? "\n\n..." : ""}`,
       data: { sources: extracted.length, extracted },
     };
+  }
+
+  private async fetchViaApi(url: string): Promise<{ url: string; title: string; text: string } | null> {
+    try {
+      const res = await fetch("/api/webfetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, timeoutMs: 20000 }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        url?: string;
+        title?: string;
+        text?: string;
+        error?: string;
+      };
+      if (data.error || !data.text) return null;
+      return {
+        url: data.url || url,
+        title: data.title || url,
+        text: data.text,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async extractViaBrowser(url: string, context: ToolContext): Promise<{ url: string; title: string; text: string } | null> {
+    const navigate = this.createBrowserExecutor("navigate", ["url"]);
+    const extract = this.createBrowserExecutor("extractText", []);
+
+    const navResult = await navigate({ url }, context);
+    if (!navResult.success) return null;
+
+    const extractResult = await extract({}, context);
+    if (!extractResult.success) return null;
+
+    const text =
+      typeof extractResult.data === "string"
+        ? extractResult.data
+        : (extractResult.data as { data?: string } | undefined)?.data || "";
+
+    const title = (navResult.data as { title?: string } | undefined)?.title || url;
+    return { url, title, text: text.slice(0, 4000) };
   }
 
   // ==================== BÚSQUEDA / SCRAPING ====================

@@ -34,6 +34,7 @@ export const SaveCredentialsSchema = z.object({
   tokenType: z.string().optional(),
   accountId: z.string().optional(),
   name: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const SaveAppCredentialsSchema = z.object({
@@ -55,6 +56,7 @@ export const BrowserActionSchema = z.object({
     "extractText",
     "executeScript",
     "getDOMRepresentation",
+    "oauthFlow",
   ]),
   params: z.record(z.string(), z.unknown()).optional().default({}),
 });

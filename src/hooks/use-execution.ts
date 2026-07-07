@@ -12,6 +12,7 @@ import { getAdapter, type ChatMessage as LLMChatMessage } from "@/lib/agents/ope
 import { streamAgentExecution } from "@/lib/agents/stream-client";
 import { sanitizeLLMOutput } from "@/lib/utils";
 import { exportReport, type ExportFormat } from "@/lib/export-report";
+import { detectConnectorIntent, executeConnectorIntent, formatConnectorResult } from "@/lib/integrations/intent-detector";
 
 // ==================== HOOK DE EJECUCIÓN ====================
 // Este hook conecta el frontend con el orquestador de los 7 agentes.
@@ -228,6 +229,7 @@ export function useExecution() {
     // Obtener el modelo por defecto del usuario
     const apiConfig = useAppStore.getState().apiConfig;
     const agentMode = useAppStore.getState().agentMode ?? "economy";
+    const internetMode = useAppStore.getState().internetMode ?? false;
     const defaultModel = apiConfig?.selectedModel || "kimi-k2.7-code";
     // Consideramos la API key válida si está presente y tiene longitud suficiente.
     // No exigimos testResult === "success" porque el estado puede no hidratarse
@@ -249,12 +251,20 @@ export function useExecution() {
     const previousMessages = conversation.messages
       .filter((m) => m.id !== assistantMsgId && m.id !== userMsg.id)
       .slice(-4);
+    // Si el usuario adjuntó archivos (imágenes, etc.), lo incluimos en el prompt
+    // para que el LLM/agent sepa que existen y pueda usarlos/referenciarlos.
+    const attachments = userMsg.attachments && userMsg.attachments.length > 0 ? userMsg.attachments : undefined;
+    const attachmentsBlock = attachments && attachments.length > 0
+      ? `\n\n[ARCHIVOS ADJUNTOS POR EL USUARIO]\n${attachments.map((a, i) =>
+          `- (${i + 1}) ${a.type} "${a.name}" — ${a.url}${a.thumbnailUrl && a.thumbnailUrl !== a.url ? ` (thumbnail: ${a.thumbnailUrl})` : ""}`
+        ).join("\n")}\nSi son imágenes, descríbelas o úsalas como contexto visual. Si necesitas analizarlas, descárgalas vía fetch y aplícales las herramientas necesarias (sandbox, código, análisis).` + (attachments.some(a => a.type.startsWith("image/")) ? `\nPara modelos con visión, considera incluir las URLs como image_url en el LLM si está disponible.` : "") + `\n[/ARCHIVOS ADJUNTOS]\n`
+      : "";
     const contextPrompt =
       previousMessages.length > 0
         ? `Contexto previo de la conversación:\n${previousMessages
-            .map((m) => `${m.role === "user" ? "Usuario" : "Asistente"}: ${m.content.slice(0, 300)}`)
-            .join("\n")}\n\nNuevo mensaje del usuario: ${userMsg.content}`
-        : userMsg.content;
+            .map((m) => `${m.role === "user" ? "Usuario" : "Asistente"}: ${m.content.slice(0, 300)}` + (m.attachments && m.attachments.length ? ` (con ${m.attachments.length} archivo(s) adjunto(s))` : ""))
+            .join("\n")}\n\nNuevo mensaje del usuario: ${userMsg.content}${attachmentsBlock}`
+        : `${userMsg.content}${attachmentsBlock}`;
 
     let userObjective = extractUserObjective(userMsg.content);
     const lastUserMessage = previousMessages.slice().reverse().find((m) => m.role === "user");
@@ -281,6 +291,7 @@ export function useExecution() {
           previousMessages: previousMessages.map((m) => ({ role: m.role, content: m.content.slice(0, 300) })),
           forceSimple: detection.isSimple && detection.confidence > 0.6,
           mode: agentMode,
+          internetMode,
         },
         {
           onStart: () => {
@@ -468,6 +479,7 @@ export function useExecution() {
           hasApiKey: true,
           adapter,
           historyMessages,
+          internetMode,
           onComplete: () => {
             simulatingRef.current = null;
           },
@@ -495,6 +507,7 @@ export function useExecution() {
         hasApiKey,
         adapter,
         historyMessages,
+        internetMode,
         onComplete: () => {
           simulatingRef.current = null;
         },
@@ -739,11 +752,12 @@ interface DirectResponseOptions {
   hasApiKey: boolean;
   adapter: ReturnType<typeof getAdapter>;
   historyMessages?: LLMChatMessage[];
+  internetMode?: boolean;
   onComplete: () => void;
 }
 
 async function handleDirectResponse(options: DirectResponseOptions) {
-  const { content, conversationId, assistantMsgId, model, hasApiKey, adapter, historyMessages = [], onComplete } = options;
+  const { content, conversationId, assistantMsgId, model, hasApiKey, adapter, historyMessages = [], internetMode = false, onComplete } = options;
 
   // Actualizar estado
   const updateMessage = useTaskStore.getState().updateMessage;
@@ -763,15 +777,117 @@ async function handleDirectResponse(options: DirectResponseOptions) {
   let cost = 0;
 
     try {
+      let internetContext = "";
+
+// Contexto de conectores: inyectar estado de conexiones del usuario
+      let connectedConnectors: Array<{ source: string; name: string; description: string; actions: string[] }> = [];
+      let connectorsContext = "";
+      try {
+        const connRes = await fetch("/api/connectors/connected");
+        if (connRes.ok) {
+          const connData = await connRes.json();
+          connectedConnectors = connData.connected || [];
+          if (connectedConnectors.length > 0) {
+            const lines = connectedConnectors.map(
+              (c: { name: string; source: string; description: string; actions: string[] }) =>
+                `- ${c.name} (${c.source}): ${c.description}. Acciones disponibles: ${c.actions.join(", ")}`
+            );
+            connectorsContext = `\n\n[CONECTORES CONECTADOS DEL USUARIO]\nEl usuario tiene los siguientes conectores externos conectados y listos para usar:\n${lines.join("\n")}\nCuando el usuario pregunte sobre conexiones, integraciones o datos de estas fuentes, confirma que están conectadas y describe qué acciones puede ejecutar.\n[/CONECTORES]\n\n`;
+          }
+        }
+      } catch (err) {
+        console.warn("[handleDirectResponse] Connectors fetch failed:", err);
+      }
+
+      // === DETECTAR Y EJECUTAR ACCIÓN DE CONECTOR ===
+      // Si el usuario pide algo que mapea a una acción de conector (ej: "listar
+      // mis repos"), ejecutar la acción directamente y responder con el
+      // resultado formateado, sin pasar por el LLM.
+      const cleanedMessage = content.replace(/^Contexto previo[\s\S]*?Nuevo mensaje del usuario:\s*/i, "").trim();
+      const intent = detectConnectorIntent(cleanedMessage, connectedConnectors, historyMessages);
+      if (intent && intent.confidence > 0.5) {
+        updateMessage(conversationId, assistantMsgId, {
+          content: `🔌 Ejecutando **${intent.source}/${intent.action}**...`,
+          agentStatus: "thinking",
+        });
+        const actionResult = await executeConnectorIntent(intent);
+        const formatted = formatConnectorResult(intent.source, intent.action, actionResult || { success: false, error: "sin respuesta" });
+        updateMessage(conversationId, assistantMsgId, {
+          content: formatted,
+          agentStatus: "completed",
+        });
+        updateConversation(conversationId, {
+          status: "completed",
+          modelUsed: "connector:" + intent.source,
+          tokensUsed: 0,
+          cost: 0,
+          summary: formatted.slice(0, 200),
+        });
+        setWorkspace({
+          activeTab: "output",
+          output: { type: "text", content: formatted, title: `${intent.source}/${intent.action}` },
+        });
+        setWorking(false);
+        setCurrentAgent(null);
+        onComplete();
+        return;
+      }
+
+      if (internetMode) {
+        try {
+          updateMessage(conversationId, assistantMsgId, {
+            content: "🌐 Buscando en internet...",
+            agentStatus: "thinking",
+          });
+          const rawQuery = content.replace(/^Contexto previo[\s\S]*?Nuevo mensaje del usuario:\s*/i, "").trim();
+          const query = resolveSearchQuery(rawQuery, historyMessages);
+          const searchRes = await fetch("/api/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, limit: 5 }),
+          });
+          const searchData = await searchRes.json();
+          const results = searchData.results || [];
+          if (results.length > 0) {
+            const top = results.slice(0, 3);
+            const fetched = await Promise.allSettled(
+              top.map((r: { url: string }) =>
+                fetch("/api/webfetch", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ url: r.url, timeoutMs: 12000 }),
+                })
+                  .then((r) => r.json())
+                  .catch(() => null)
+              )
+            );
+            const snippets = top
+              .map((r: { title: string; url: string; snippet: string }, i: number) => {
+                const f = fetched[i];
+                const text = f.status === "fulfilled" && f.value?.text
+                  ? f.value.text.slice(0, 2000)
+                  : r.snippet;
+                return `### ${r.title}\nURL: ${r.url}\n${text}`;
+              })
+              .join("\n\n---\n\n");
+            internetContext = `\n\n[CONTEXTO WEB ACTUALIZADO — ${new Date().toISOString()}]\nResultados de búsqueda para "${query}":\n${snippets}\n[/CONTEXTO WEB]\n\n`;
+          }
+        } catch (err) {
+          console.warn("[handleDirectResponse] Internet search failed:", err);
+        }
+      }
+
       if (hasApiKey) {
+        const systemContent = internetMode
+          ? "Eres un asistente IA útil, conciso y profesional. Se te ha proporcionado contexto web actualizado extraído de internet. Úsalo para responder con información actual y cita las URL relevantes. Mantén el contexto de la conversación previa. También conoces los conectores que el usuario tiene conectados."
+          : "Eres un asistente IA útil, conciso y profesional. Responde directamente a la pregunta del usuario sin usar herramientas ni pasos de ejecución. Mantén el contexto de la conversación previa. Conoces los conectores que el usuario tiene conectados e puedes describir sus acciones disponibles.";
+
+        const userContent = `${content}${connectorsContext}${internetContext}`;
+
         const messages: LLMChatMessage[] = [
-          {
-            role: "system",
-            content:
-              "Eres un asistente IA útil, conciso y profesional. Responde directamente a la pregunta del usuario sin usar herramientas ni pasos de ejecución. Mantén el contexto de la conversación previa.",
-          },
+          { role: "system", content: systemContent },
           ...historyMessages,
-          { role: "user", content },
+          { role: "user", content: userContent },
         ];
 
         // Usar streaming si está disponible
@@ -790,9 +906,13 @@ async function handleDirectResponse(options: DirectResponseOptions) {
       tokensUsed = Math.floor((responseText.length + content.length) / 4);
       cost = (tokensUsed / 1_000_000) * 2.0;
     } else {
-      // Sin API key: respuesta simulada rápida
-      await new Promise((r) => setTimeout(r, 600));
-      responseText = generateSimulatedSimpleResponse(content);
+      // Sin API key: si hay contexto web, mostrarlo; si no, respuesta simulada
+      if (internetMode && internetContext) {
+        responseText = `## Resultados de búsqueda en internet\n\n${internetContext.replace(/\[CONTEXTO WEB[^\]]*\]/g, "").replace(/\[\/CONTEXTO WEB\]/g, "").trim()}\n\n---\n_Nota: configura tu API key de OpenCode en Settings para obtener respuestas procesadas por el LLM._`;
+      } else {
+        await new Promise((r) => setTimeout(r, 600));
+        responseText = generateSimulatedSimpleResponse(content);
+      }
       tokensUsed = Math.floor(responseText.length / 4);
       cost = 0;
       updateMessage(conversationId, assistantMsgId, {
@@ -953,4 +1073,68 @@ function getInitialMessageForCategory(category: string): string {
     general: "Voy a trabajar en esta tarea. Te mostraré el progreso en el panel derecho.",
   };
   return messages[category] || messages.general;
+}
+
+/**
+ * Resuelve la query de búsqueda a partir del mensaje actual + historial.
+ * Si el mensaje actual es una petición de reintento ("intenta de nuevo",
+ * "otra vez", "hazlo de nuevo", "again", etc.), usa la última pregunta
+ * sustantiva del historial. También traduce consultas sobre deportes/eventos
+ * actuales al inglés para obtener mejores resultados de Bing.
+ */
+function resolveSearchQuery(
+  currentMessage: string,
+  history: LLMChatMessage[]
+): string {
+  const RETRY_PATTERNS = [
+    /^(intenta|hazlo|prueba|haz)\s+(de nuevo|otra vez|lo de nuevo|otra)$/i,
+    /^(intenta|prueba)\s+(de nuevo|otra vez)$/i,
+    /^(again|retry|repeat|try again)$/i,
+    /^(otra vez|de nuevo|repite)$/i,
+    /^(no funcion|no sirve|sigue sin|dale soluci)/i,
+  ];
+  const isRetry = RETRY_PATTERNS.some((re) => re.test(currentMessage.trim().toLowerCase()));
+
+  let query = currentMessage;
+
+  if (isRetry) {
+    // Buscar la última pregunta sustantiva del usuario en el historial
+    for (let i = history.length - 1; i >= 0; i--) {
+      const msg = history[i];
+      if (msg.role === "user" && msg.content.length > 10) {
+        const cleaned = msg.content
+          .replace(/^Contexto previo[\s\S]*?Nuevo mensaje del usuario:\s*/i, "")
+          .trim();
+        if (cleaned.length > 10 && !RETRY_PATTERNS.some((re) => re.test(cleaned.toLowerCase()))) {
+          query = cleaned;
+          break;
+        }
+      }
+    }
+  }
+
+  // Traducir consultas sobre eventos deportivos/actuales al inglés
+  // para que Bing devuelva resultados más relevantes.
+  const sportsTranslations: Array<[RegExp, string | ((m: string, ...g: string[]) => string)]> = [
+    [/estados unidos\s+vs\s+belgic?a/i, "USA vs Belgium result"],
+    [/belgic?a\s+vs\s+estados unidos/i, "Belgium vs USA result"],
+    [/estados unidos\s+vs\s+([a-záéíóúñ\s]+)/i, (_m, t) => `USA vs ${t} result`],
+    [/([a-záéíóúñ\s]+)\s+vs\s+estados unidos/i, (_m, t) => `${t} vs USA result`],
+    [/resultado\s+(?:del?\s+)?partido/i, "match result today"],
+    [/quien\s+gan/i, "who won today match"],
+  ];
+  for (const [re, replacement] of sportsTranslations) {
+    if (re.test(query)) {
+      query = query.replace(re, replacement as string);
+      break;
+    }
+  }
+
+  // Si la query sigue en español y menciona "partido de hoy" o "resultado",
+  // añadir "2026" y "result" para mejor precisión.
+  if (/partido|hoy|resultado|ganó|ganador/i.test(query) && !/result|today|2026/i.test(query)) {
+    query = `${query} 2026 result`;
+  }
+
+  return query.slice(0, 200) || currentMessage.slice(0, 200);
 }

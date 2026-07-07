@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { Conversation, ChatMessage, ExecutionStep } from "./types";
+import type { Conversation, ChatMessage, ExecutionStep, Attachment } from "./types";
 import { SAMPLE_CONVERSATIONS, detectCategory } from "./mock-data";
 import { useAppStore } from "./store-app";
 
@@ -14,7 +14,7 @@ interface TaskState {
   currentConversationId: string | null;
 
   // Actions
-  createConversation: (objective: string) => string;
+  createConversation: (objective: string, attachments?: Attachment[]) => string;
   setCurrentConversation: (id: string | null) => void;
   deleteConversation: (id: string) => void;
   updateConversation: (id: string, updates: Partial<Conversation>) => void;
@@ -30,10 +30,11 @@ export const useTaskStore = create<TaskState>()(
       conversations: SAMPLE_CONVERSATIONS,
       currentConversationId: null,
 
-      createConversation: (objective) => {
+      createConversation: (objective, attachments) => {
         const id = `conv-${Date.now()}`;
         const category = detectCategory(objective);
         const title = objective.length > 50 ? objective.slice(0, 50) + "..." : objective;
+        const firstMessageAttachments = attachments && attachments.length > 0 ? attachments : undefined;
         const newConversation: Conversation = {
           id,
           title,
@@ -45,6 +46,7 @@ export const useTaskStore = create<TaskState>()(
               role: "user",
               content: objective,
               timestamp: new Date().toISOString(),
+              attachments: firstMessageAttachments,
             },
           ],
           status: "active",
