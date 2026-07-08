@@ -65,12 +65,14 @@ export function ConversationSidebar() {
   const toggleTheme = useAppStore((s) => s.toggleTheme);
   const setCurrentConversation = useTaskStore((s) => s.setCurrentConversation);
   const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const filtered = conversations.filter(
     (c) =>
-      !search ||
-      c.title.toLowerCase().includes(search.toLowerCase()) ||
-      c.preview.toLowerCase().includes(search.toLowerCase())
+      (!search ||
+        c.title.toLowerCase().includes(search.toLowerCase()) ||
+        c.preview.toLowerCase().includes(search.toLowerCase())) &&
+      (!selectedCategory || c.category === selectedCategory)
   );
 
   const handleNewChat = () => {
@@ -115,8 +117,8 @@ export function ConversationSidebar() {
           </Button>
         </div>
 
-        {/* Search */}
-        <div className="px-2 pb-2">
+        {/* Search y Filtros */}
+        <div className="px-2 pb-2 space-y-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <Input
@@ -125,6 +127,34 @@ export function ConversationSidebar() {
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 h-8 text-xs bg-sidebar-accent/50 border-sidebar-border"
             />
+          </div>
+          {/* Filtros por categoría */}
+          <div className="flex gap-1 flex-wrap">
+            <button
+              onClick={() => setSelectedCategory(null)}
+              className={cn(
+                "text-[10px] px-2 py-1 rounded border transition-colors",
+                !selectedCategory
+                  ? "bg-manus-primary/20 border-manus-primary/40 text-manus-primary"
+                  : "border-border text-muted-foreground hover:border-foreground/30"
+              )}
+            >
+              Todas
+            </button>
+            {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSelectedCategory(key)}
+                className={cn(
+                  "text-[10px] px-2 py-1 rounded border transition-colors",
+                  selectedCategory === key
+                    ? "bg-manus-primary/20 border-manus-primary/40 text-manus-primary"
+                    : "border-border text-muted-foreground hover:border-foreground/30"
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -166,15 +196,25 @@ export function ConversationSidebar() {
                             <div className="text-[10px] text-muted-foreground truncate mt-0.5">
                               {conv.preview}
                             </div>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                               {conv.category && (
-                                <span className="text-[9px] uppercase tracking-wider text-muted-foreground/70">
+                                <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground">
                                   {CATEGORY_LABELS[conv.category]}
                                 </span>
                               )}
-                              <span className="text-[9px] text-muted-foreground/70">
+                              <span className="text-[9px] text-muted-foreground/60">
                                 {timeAgo(conv.updatedAt)}
                               </span>
+                              {conv.tokensUsed > 0 && (
+                                <span className="text-[9px] text-muted-foreground/60">
+                                  {conv.tokensUsed} tokens
+                                </span>
+                              )}
+                              {conv.cost > 0 && (
+                                <span className="text-[9px] text-muted-foreground/60">
+                                  ${conv.cost.toFixed(4)}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
