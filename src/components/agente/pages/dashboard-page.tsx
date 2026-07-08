@@ -108,12 +108,12 @@ export function DashboardPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
             >
-              <Card className="p-4">
+              <Card className="p-4 border-border hover:border-manus-primary/40 hover:shadow-glow-violet transition-all">
                 <div className="flex items-start justify-between mb-2">
-                  <stat.icon className="size-4 text-muted-foreground" />
-                  <span className="text-[10px] font-medium text-emerald-500">{stat.trend}</span>
+                  <stat.icon className="size-4 text-manus-primary" />
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-manus-success/20 text-manus-success">{stat.trend}</span>
                 </div>
-                <div className="text-xl font-semibold">{stat.value}</div>
+                <div className="text-xl font-semibold text-gradient-manus">{stat.value}</div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">{stat.label}</div>
               </Card>
             </motion.div>
@@ -122,13 +122,13 @@ export function DashboardPage() {
 
         {/* Charts */}
         <div className="grid lg:grid-cols-3 gap-3 mb-8">
-          <Card className="p-5 lg:col-span-2">
+          <Card className="p-5 lg:col-span-2 border-border hover:border-manus-secondary/40 hover:shadow-glow-blue transition-all">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="font-medium text-sm">Actividad</h3>
+                <h3 className="font-medium text-sm text-gradient-manus-to-right">Actividad</h3>
                 <p className="text-[10px] text-muted-foreground">Tareas y tokens por día</p>
               </div>
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="text-[10px] bg-manus-secondary/10 border-manus-secondary/30 text-manus-secondary">
                 <Activity className="size-2.5 mr-1" />
                 Últimos 7 días
               </Badge>
@@ -157,8 +157,8 @@ export function DashboardPage() {
             </ResponsiveContainer>
           </Card>
 
-          <Card className="p-5">
-            <h3 className="font-medium text-sm mb-1">Uso de modelos</h3>
+          <Card className="p-5 border-border hover:border-manus-primary/40 hover:shadow-glow-violet transition-all">
+            <h3 className="font-medium text-sm mb-1 text-gradient-manus">Uso de modelos</h3>
             <p className="text-[10px] text-muted-foreground mb-4">Distribución</p>
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
