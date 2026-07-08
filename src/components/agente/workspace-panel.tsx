@@ -75,8 +75,10 @@ export function WorkspacePanel() {
                 key={tab.id}
                 onClick={() => setWorkspaceTab(tab.id)}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors whitespace-nowrap",
-                  isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-all whitespace-nowrap border",
+                  isActive 
+                    ? "bg-gradient-to-r from-manus-primary/20 to-manus-secondary/20 text-manus-primary border-manus-primary/40 shadow-glow-violet" 
+                    : "text-muted-foreground border-border hover:text-foreground hover:bg-muted/50 hover:border-foreground/20"
                 )}
               >
                 <tab.icon className="size-3.5" />
@@ -209,8 +211,8 @@ function FilesView() {
                 key={file.path}
                 onClick={() => setSelectedFile(file.name)}
                 className={cn(
-                  "w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-left transition-colors",
-                  isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/50"
+                  "w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-left transition-all border border-transparent",
+                  isActive ? "bg-manus-primary/10 text-manus-primary border-manus-primary/30" : "text-muted-foreground hover:bg-muted/50 hover:border-foreground/10"
                 )}
               >
                 <Icon className="size-3 shrink-0" />
@@ -229,13 +231,15 @@ function FilesView() {
               <div className="flex items-center gap-0.5">
                 <button
                   onClick={handleCopy}
-                  className="size-6 rounded hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground"
+                  className="size-6 rounded hover:bg-manus-primary/20 hover:text-manus-primary flex items-center justify-center text-muted-foreground transition-colors"
+                  title="Copiar al portapapeles"
                 >
                   {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
                 </button>
                 <button
                   onClick={handleDownload}
-                  className="size-6 rounded hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground"
+                  className="size-6 rounded hover:bg-manus-secondary/20 hover:text-manus-secondary flex items-center justify-center text-muted-foreground transition-colors"
+                  title="Descargar archivo"
                 >
                   <Download className="size-3" />
                 </button>
