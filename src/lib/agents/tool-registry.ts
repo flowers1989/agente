@@ -13,6 +13,7 @@ import { testingExecutor } from "./testing-executor";
 import { projectManagementExecutor } from "./project-management-executor";
 import { getCronService } from "../services/cron-service";
 import { getWebhookService } from "../services/webhook-service";
+import { getPDFGenerator, type PDFGenerationParams } from "./pdf-generator-executor";
 import { useMemoryStore } from "../memory/memory-store";
 import {
   clientGetOrCreateSandbox,
@@ -139,6 +140,7 @@ export class ToolRegistry {
     // === Adicionales ===
     this.register("Testing", this.testingExecutor.bind(this));
     this.register("Project Management", this.projectManagementExecutor.bind(this));
+    this.register("PDF Generation", this.pdfGeneratorExecutor.bind(this));
     this.register("Deployment", this.compilationExecutor.bind(this));
     this.register("Skill Execution", this.skillExecutionExecutor.bind(this));
 
@@ -1280,6 +1282,50 @@ Incluye: portada, agenda, contenido principal, conclusiones y llamada a la acciÃ
 
   private projectManagementExecutor: ToolExecutor = async (params, context) => {
     return projectManagementExecutor(params, context);
+  };
+
+  private pdfGeneratorExecutor: ToolExecutor = async (params) => {
+    try {
+      const generator = getPDFGenerator();
+      const pdfParams: PDFGenerationParams = {
+        content: String(params.content || ""),
+        title: params.title ? String(params.title) : undefined,
+        author: params.author ? String(params.author) : undefined,
+        subject: params.subject ? String(params.subject) : undefined,
+        format: (params.format as "markdown" | "html") || "markdown",
+      };
+
+      const result = await generator.generateFromMarkdown(pdfParams);
+
+      if (result.success) {
+        return {
+          success: true,
+          result: `PDF generado exitosamente: ${result.fileName}`,
+          data: {
+            filePath: result.filePath,
+            fileName: result.fileName,
+            fileSize: result.fileSize,
+          },
+          output: {
+            type: "file",
+            content: result.filePath || "",
+            filename: result.fileName,
+            title: pdfParams.title || "Documento PDF",
+          },
+        };
+      } else {
+        return {
+          success: false,
+          error: result.error || "Error desconocido generando PDF",
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `Error en PDF Generator: ${message}`,
+      };
+    }
   };
 
   private simulatedExecutor(resultText: string): ToolExecutor {
