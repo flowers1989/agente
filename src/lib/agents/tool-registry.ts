@@ -9,6 +9,10 @@
 // - Una simulación si no hay implementación real todavía
 
 import { getAdapter } from "./opencode-adapter";
+import { testingExecutor } from "./testing-executor";
+import { projectManagementExecutor } from "./project-management-executor";
+import { getCronService } from "../services/cron-service";
+import { getWebhookService } from "../services/webhook-service";
 import { useMemoryStore } from "../memory/memory-store";
 import {
   clientGetOrCreateSandbox,
@@ -133,8 +137,8 @@ export class ToolRegistry {
     this.register("Webhook Listener", this.webhookListenerExecutor.bind(this));
 
     // === Adicionales ===
-    this.register("Testing", this.simulatedExecutor("Tests ejecutados"));
-    this.register("Project Management", this.simulatedExecutor("Tarea gestionada"));
+    this.register("Testing", this.testingExecutor.bind(this));
+    this.register("Project Management", this.projectManagementExecutor.bind(this));
     this.register("Deployment", this.compilationExecutor.bind(this));
     this.register("Skill Execution", this.skillExecutionExecutor.bind(this));
 
@@ -1268,6 +1272,14 @@ Incluye: portada, agenda, contenido principal, conclusiones y llamada a la acci�
       data: { webhookId, source, event, endpoint: `/api/webhooks/${source}` },
       output: { type: "text", content: `Webhook activo en /api/webhooks/${source} para evento '${event}'`, title: "Webhook Registrado" },
     };
+  };
+
+  private testingExecutor: ToolExecutor = async (params, context) => {
+    return testingExecutor(params, context);
+  };
+
+  private projectManagementExecutor: ToolExecutor = async (params, context) => {
+    return projectManagementExecutor(params, context);
   };
 
   private simulatedExecutor(resultText: string): ToolExecutor {
