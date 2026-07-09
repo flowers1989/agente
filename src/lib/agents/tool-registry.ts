@@ -14,6 +14,10 @@ import { projectManagementExecutor } from "./project-management-executor";
 import { getCronService } from "../services/cron-service";
 import { getWebhookService } from "../services/webhook-service";
 import { getPDFGenerator, type PDFGenerationParams } from "./pdf-generator-executor";
+import { getWebPreviewService } from "../services/web-preview-service";
+import { getBuildService } from "../services/build-service";
+import { getPackageService } from "../services/package-service";
+import { getModelSelector } from "./model-selector";
 import { useMemoryStore } from "../memory/memory-store";
 import {
   clientGetOrCreateSandbox,
@@ -136,6 +140,12 @@ export class ToolRegistry {
     // === Automatizaci처n y Programaci처n ===
     this.register("Cron/Schedule", this.cronScheduleExecutor.bind(this));
     this.register("Webhook Listener", this.webhookListenerExecutor.bind(this));
+
+    // === Desarrollo de Aplicaciones ===
+    this.register("Web Preview", this.webPreviewExecutor.bind(this));
+    this.register("Build Multiplataforma", this.buildMultiplatformExecutor.bind(this));
+    this.register("Package & Zip", this.packageExecutor.bind(this));
+    this.register("Model Selection", this.modelSelectionExecutor.bind(this));
 
     // === Adicionales ===
     this.register("Testing", this.testingExecutor.bind(this));
@@ -1282,6 +1292,122 @@ Incluye: portada, agenda, contenido principal, conclusiones y llamada a la acci�
 
   private projectManagementExecutor: ToolExecutor = async (params, context) => {
     return projectManagementExecutor(params, context);
+  };
+
+  private webPreviewExecutor: ToolExecutor = async (params) => {
+    try {
+      const service = getWebPreviewService();
+      const preview = await service.createPreview({
+        html: String(params.html || ""),
+        css: params.css ? String(params.css) : undefined,
+        javascript: params.javascript ? String(params.javascript) : undefined,
+        title: params.title ? String(params.title) : "Vista Previa",
+      });
+
+      return {
+        success: true,
+        result: `Vista previa creada: ${preview.previewUrl}`,
+        data: preview,
+        output: {
+          type: "link",
+          content: preview.previewUrl,
+          title: "Abrir Vista Previa",
+          url: preview.previewUrl,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  };
+
+  private buildMultiplatformExecutor: ToolExecutor = async (params) => {
+    try {
+      const service = getBuildService();
+      const request = {
+        projectId: String(params.projectId || ""),
+        projectName: String(params.projectName || "App"),
+        projectType: (params.projectType as any) || "hybrid",
+        targetPlatforms: Array.isArray(params.targetPlatforms) ? params.targetPlatforms : [],
+        buildType: (params.buildType as any) || "release",
+      };
+
+      const job = await service.createBuildJob(request);
+      const result = await service.executeBuildJob(job.jobId);
+
+      return {
+        success: result.status === "completed",
+        result: service.generateBuildReport(result),
+        data: result,
+        output: {
+          type: "file",
+          content: result.zipPath || "",
+          filename: `${request.projectName}-builds.zip`,
+          title: "Descargar Compilados",
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  };
+
+  private packageExecutor: ToolExecutor = async (params) => {
+    try {
+      const service = getPackageService();
+      const result = await service.createPackage({
+        projectId: String(params.projectId || ""),
+        projectName: String(params.projectName || "App"),
+        projectPath: String(params.projectPath || ""),
+        includeNodeModules: Boolean(params.includeNodeModules),
+        includeGit: Boolean(params.includeGit),
+        metadata: params.metadata as any,
+      });
+
+      return {
+        success: result.success,
+        result: service.generatePackageReport(result),
+        data: result,
+        output: result.success
+          ? {
+              type: "file",
+              content: result.zipPath || "",
+              filename: result.fileName,
+              title: "Descargar C처digo Fuente",
+            }
+          : undefined,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  };
+
+  private modelSelectionExecutor: ToolExecutor = async (params) => {
+    try {
+      const selector = getModelSelector();
+      const analysis = selector.analyzeTaskComplexity(
+        String(params.taskDescription || ""),
+        (params.taskType as any) || "web"
+      );
+
+      const best = selector.selectBestModel(analysis);
+      const report = selector.generateSelectionReport(analysis);
+
+      return {
+        success: true,
+        result: report,
+        data: { selectedModel: best, analysis },
+        output: {
+          type: "text",
+          content: `Modelo recomendado: ${best.modelName}\nRaz처n: ${best.reason}`,
+          title: "Selecci처n de Modelo",
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
   };
 
   private pdfGeneratorExecutor: ToolExecutor = async (params) => {
