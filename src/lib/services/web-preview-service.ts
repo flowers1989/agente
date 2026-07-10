@@ -301,21 +301,34 @@ with socketserver.TCPServer(("", ${port}), MyHTTPRequestHandler) as httpd:
   generateSessionReport(): string {
     const sessions = this.getActiveSessions();
 
-    let report = `# Reporte de Sesiones de Previsualización Web\n\n`;
-    report += `**Total de sesiones activas**: ${sessions.length}\n\n`;
+    let report = `# Reporte de Sesiones de Previsualización Web
+
+`;
+    report += `**Total de sesiones activas**: ${sessions.length}
+
+`;
 
     if (sessions.length === 0) {
-      report += `No hay sesiones activas en este momento.\n`;
+      report += `No hay sesiones activas en este momento.
+`;
       return report;
     }
 
-    report += `## Sesiones Activas\n\n`;
+    report += `## Sesiones Activas
+
+`;
     for (const session of sessions) {
-      report += `### ${session.sessionId}\n`;
-      report += `- **URL**: ${session.previewUrl}\n`;
-      report += `- **Puerto**: ${session.port}\n`;
-      report += `- **Creada**: ${session.createdAt}\n`;
-      report += `- **Estado**: ${session.status}\n\n`;
+      report += `### ${session.sessionId}
+`;
+      report += `- **URL**: ${session.previewUrl}
+`;
+      report += `- **Puerto**: ${session.port}
+`;
+      report += `- **Creada**: ${session.createdAt}
+`;
+      report += `- **Estado**: ${session.status}
+
+`;
     }
 
     return report;

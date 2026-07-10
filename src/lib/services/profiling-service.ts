@@ -1,1 +1,319 @@
-/**\n * Profiling Service\n * Servicio de análisis de rendimiento y profiling de aplicaciones\n */\n\nimport { v4 as uuidv4 } from \"uuid\";\n\nexport interface ProfilingConfig {\n  projectId: string;\n  projectPath: string;\n  platform: \"web\" | \"mobile\" | \"desktop\";\n  duration?: number; // en segundos\n  includeMemory?: boolean;\n  includeCPU?: boolean;\n  includeNetwork?: boolean;\n}\n\nexport interface PerformanceMetrics {\n  timestamp: string;\n  cpu?: {\n    usage: number; // porcentaje\n    threads: number;\n  };\n  memory?: {\n    heapUsed: number; // en MB\n    heapTotal: number; // en MB\n    external: number; // en MB\n    rss: number; // en MB\n  };\n  network?: {\n    requestsPerSecond: number;\n    averageLatency: number; // en ms\n    bandwidthUsed: number; // en MB\n  };\n  rendering?: {\n    fps: number;\n    frameTime: number; // en ms\n    jank: number; // frames droppeados\n  };\n}\n\nexport interface ProfilingResult {\n  profilingId: string;\n  config: ProfilingConfig;\n  status: \"running\" | \"completed\" | \"failed\";\n  startedAt?: string;\n  completedAt?: string;\n  metrics: PerformanceMetrics[];\n  summary?: {\n    averageCPU?: number;\n    peakMemory?: number;\n    averageLatency?: number;\n    averageFPS?: number;\n    bottlenecks: string[];\n  };\n  recommendations: string[];\n  error?: string;\n}\n\n/**\n * Servicio de Profiling\n */\nexport class ProfilingService {\n  private results: Map<string, ProfilingResult> = new Map();\n\n  /**\n   * Iniciar profiling\n   */\n  async startProfiling(config: ProfilingConfig): Promise<ProfilingResult> {\n    const profilingId = uuidv4();\n    const result: ProfilingResult = {\n      profilingId,\n      config,\n      status: \"running\",\n      startedAt: new Date().toISOString(),\n      metrics: [],\n      recommendations: [],\n    };\n\n    this.results.set(profilingId, result);\n    console.log(`[ProfilingService] Profiling iniciado: ${profilingId}`);\n\n    try {\n      // Recolectar métricas\n      const duration = config.duration || 30; // 30 segundos por defecto\n      const interval = 1000; // Cada segundo\n      const iterations = duration;\n\n      for (let i = 0; i < iterations; i++) {\n        const metrics = await this.collectMetrics(config);\n        result.metrics.push(metrics);\n\n        // Simular retraso\n        await new Promise((resolve) => setTimeout(resolve, interval));\n      }\n\n      // Generar resumen\n      result.summary = this.generateSummary(result.metrics);\n\n      // Generar recomendaciones\n      result.recommendations = this.generateRecommendations(result.summary);\n\n      result.status = \"completed\";\n      result.completedAt = new Date().toISOString();\n\n      console.log(`[ProfilingService] Profiling completado: ${profilingId}`);\n    } catch (error) {\n      result.status = \"failed\";\n      const message = error instanceof Error ? error.message : String(error);\n      result.error = message;\n      console.error(`[ProfilingService] Error en profiling: ${message}`);\n    }\n\n    return result;\n  }\n\n  /**\n   * Recolectar métricas\n   */\n  private async collectMetrics(config: ProfilingConfig): Promise<PerformanceMetrics> {\n    const metrics: PerformanceMetrics = {\n      timestamp: new Date().toISOString(),\n    };\n\n    if (config.includeCPU) {\n      metrics.cpu = {\n        usage: Math.random() * 80 + 10, // 10-90%\n        threads: Math.floor(Math.random() * 8) + 2, // 2-10 threads\n      };\n    }\n\n    if (config.includeMemory) {\n      metrics.memory = {\n        heapUsed: Math.random() * 200 + 50, // 50-250 MB\n        heapTotal: 256,\n        external: Math.random() * 50,\n        rss: Math.random() * 400 + 100, // 100-500 MB\n      };\n    }\n\n    if (config.includeNetwork) {\n      metrics.network = {\n        requestsPerSecond: Math.floor(Math.random() * 100) + 10,\n        averageLatency: Math.random() * 200 + 50, // 50-250 ms\n        bandwidthUsed: Math.random() * 10,\n      };\n    }\n\n    if (config.platform === \"web\" || config.platform === \"mobile\") {\n      metrics.rendering = {\n        fps: Math.floor(Math.random() * 20) + 50, // 50-70 FPS\n        frameTime: 1000 / (metrics.rendering?.fps || 60),\n        jank: Math.floor(Math.random() * 5),\n      };\n    }\n\n    return metrics;\n  }\n\n  /**\n   * Generar resumen de métricas\n   */\n  private generateSummary(metrics: PerformanceMetrics[]): ProfilingResult[\"summary\"] {\n    if (metrics.length === 0) return undefined;\n\n    const summary: ProfilingResult[\"summary\"] = {\n      bottlenecks: [],\n    };\n\n    // CPU\n    if (metrics[0].cpu) {\n      const cpuValues = metrics.map((m) => m.cpu?.usage || 0);\n      summary.averageCPU = cpuValues.reduce((a, b) => a + b, 0) / cpuValues.length;\n    }\n\n    // Memoria\n    if (metrics[0].memory) {\n      const memoryValues = metrics.map((m) => m.memory?.heapUsed || 0);\n      summary.peakMemory = Math.max(...memoryValues);\n    }\n\n    // Latencia\n    if (metrics[0].network) {\n      const latencyValues = metrics.map((m) => m.network?.averageLatency || 0);\n      summary.averageLatency = latencyValues.reduce((a, b) => a + b, 0) / latencyValues.length;\n    }\n\n    // FPS\n    if (metrics[0].rendering) {\n      const fpsValues = metrics.map((m) => m.rendering?.fps || 0);\n      summary.averageFPS = fpsValues.reduce((a, b) => a + b, 0) / fpsValues.length;\n    }\n\n    // Identificar cuellos de botella\n    if (summary.averageCPU && summary.averageCPU > 70) {\n      summary.bottlenecks.push(\"Alto uso de CPU (>70%)\");\n    }\n    if (summary.peakMemory && summary.peakMemory > 300) {\n      summary.bottlenecks.push(\"Alto uso de memoria (>300MB)\");\n    }\n    if (summary.averageLatency && summary.averageLatency > 200) {\n      summary.bottlenecks.push(\"Alta latencia de red (>200ms)\");\n    }\n    if (summary.averageFPS && summary.averageFPS < 50) {\n      summary.bottlenecks.push(\"Bajo FPS (<50)\");\n    }\n\n    return summary;\n  }\n\n  /**\n   * Generar recomendaciones\n   */\n  private generateRecommendations(summary?: ProfilingResult[\"summary\"]): string[] {\n    const recommendations: string[] = [];\n\n    if (!summary) return recommendations;\n\n    if (summary.averageCPU && summary.averageCPU > 70) {\n      recommendations.push(\n        \"Optimizar cálculos intensivos: considera usar Web Workers o mover lógica pesada al backend\"\n      );\n      recommendations.push(\"Revisar loops innecesarios y operaciones ineficientes\");\n    }\n\n    if (summary.peakMemory && summary.peakMemory > 300) {\n      recommendations.push(\"Implementar garbage collection más agresivo\");\n      recommendations.push(\"Revisar memory leaks: busca referencias circulares no liberadas\");\n      recommendations.push(\"Considerar virtualización de listas largas\");\n    }\n\n    if (summary.averageLatency && summary.averageLatency > 200) {\n      recommendations.push(\"Implementar caching para reducir latencia\");\n      recommendations.push(\"Optimizar queries de base de datos\");\n      recommendations.push(\"Considerar CDN para contenido estático\");\n    }\n\n    if (summary.averageFPS && summary.averageFPS < 50) {\n      recommendations.push(\"Optimizar renderizado: reduce animaciones complejas\");\n      recommendations.push(\"Implementar requestAnimationFrame para animaciones suaves\");\n      recommendations.push(\"Revisar CSS: evita reflows y repaints innecesarios\");\n    }\n\n    if (summary.bottlenecks.length === 0) {\n      recommendations.push(\"✅ La aplicación tiene buen rendimiento en general\");\n    }\n\n    return recommendations;\n  }\n\n  /**\n   * Obtener resultado\n   */\n  getProfilingResult(profilingId: string): ProfilingResult | undefined {\n    return this.results.get(profilingId);\n  }\n\n  /**\n   * Generar reporte de profiling\n   */\n  generateProfilingReport(result: ProfilingResult): string {\n    let report = `# Reporte de Profiling y Rendimiento\\n\\n`;\n    report += `**ID de Profiling**: ${result.profilingId}\\n`;\n    report += `**Plataforma**: ${result.config.platform}\\n`;\n    report += `**Estado**: ${result.status === \"completed\" ? \"✅ Completado\" : \"❌ Fallido\"}\\n\\n`;\n\n    if (result.summary) {\n      report += `## Resumen de Métricas\\n\\n`;\n      report += `| Métrica | Valor |\\n`;\n      report += `|--------|-------|\\n`;\n\n      if (result.summary.averageCPU !== undefined) {\n        report += `| CPU Promedio | ${result.summary.averageCPU.toFixed(1)}% |\\n`;\n      }\n      if (result.summary.peakMemory !== undefined) {\n        report += `| Memoria Pico | ${result.summary.peakMemory.toFixed(1)} MB |\\n`;\n      }\n      if (result.summary.averageLatency !== undefined) {\n        report += `| Latencia Promedio | ${result.summary.averageLatency.toFixed(1)} ms |\\n`;\n      }\n      if (result.summary.averageFPS !== undefined) {\n        report += `| FPS Promedio | ${result.summary.averageFPS.toFixed(1)} |\\n`;\n      }\n\n      report += `\\n`;\n    }\n\n    if (result.summary?.bottlenecks && result.summary.bottlenecks.length > 0) {\n      report += `## Cuellos de Botella Identificados\\n\\n`;\n      for (const bottleneck of result.summary.bottlenecks) {\n        report += `- ⚠️ ${bottleneck}\\n`;\n      }\n      report += `\\n`;\n    }\n\n    if (result.recommendations.length > 0) {\n      report += `## Recomendaciones de Optimización\\n\\n`;\n      for (const rec of result.recommendations) {\n        report += `- ${rec}\\n`;\n      }\n      report += `\\n`;\n    }\n\n    return report;\n  }\n}\n\n/**\n * Instancia global\n */\nlet profilingServiceInstance: ProfilingService | null = null;\n\nexport function getProfilingService(): ProfilingService {\n  if (!profilingServiceInstance) {\n    profilingServiceInstance = new ProfilingService();\n  }\n  return profilingServiceInstance;\n}\n
+/**
+ * Profiling Service
+ * Servicio de análisis de rendimiento y profiling de aplicaciones
+ */
+
+import { v4 as uuidv4 } from "uuid";
+
+export interface ProfilingConfig {
+  projectId: string;
+  projectPath: string;
+  platform: "web" | "mobile" | "desktop";
+  duration?: number; // en segundos
+  includeMemory?: boolean;
+  includeCPU?: boolean;
+  includeNetwork?: boolean;
+}
+
+export interface PerformanceMetrics {
+  timestamp: string;
+  cpu?: {
+    usage: number; // porcentaje
+    threads: number;
+  };
+  memory?: {
+    heapUsed: number; // en MB
+    heapTotal: number; // en MB
+    external: number; // en MB
+    rss: number; // en MB
+  };
+  network?: {
+    requestsPerSecond: number;
+    averageLatency: number; // en ms
+    bandwidthUsed: number; // en MB
+  };
+  rendering?: {
+    fps: number;
+    frameTime: number; // en ms
+    jank: number; // frames droppeados
+  };
+}
+
+export interface ProfilingResult {
+  profilingId: string;
+  config: ProfilingConfig;
+  status: "running" | "completed" | "failed";
+  startedAt?: string;
+  completedAt?: string;
+  metrics: PerformanceMetrics[];
+  summary?: {
+    averageCPU?: number;
+    peakMemory?: number;
+    averageLatency?: number;
+    averageFPS?: number;
+    bottlenecks: string[];
+  };
+  recommendations: string[];
+  error?: string;
+}
+
+/**
+ * Servicio de Profiling
+ */
+export class ProfilingService {
+  private results: Map<string, ProfilingResult> = new Map();
+
+  /**
+   * Iniciar profiling
+   */
+  async startProfiling(config: ProfilingConfig): Promise<ProfilingResult> {
+    const profilingId = uuidv4();
+    const result: ProfilingResult = {
+      profilingId,
+      config,
+      status: "running",
+      startedAt: new Date().toISOString(),
+      metrics: [],
+      recommendations: [],
+    };
+
+    this.results.set(profilingId, result);
+    console.log(`[ProfilingService] Profiling iniciado: ${profilingId}`);
+
+    try {
+      // Recolectar métricas
+      const duration = config.duration || 30; // 30 segundos por defecto
+      const interval = 1000; // Cada segundo
+      const iterations = duration;
+
+      for (let i = 0; i < iterations; i++) {
+        const metrics = await this.collectMetrics(config);
+        result.metrics.push(metrics);
+
+        // Simular retraso
+        await new Promise((resolve) => setTimeout(resolve, interval));
+      }
+
+      // Generar resumen
+      result.summary = this.generateSummary(result.metrics);
+
+      // Generar recomendaciones
+      result.recommendations = this.generateRecommendations(result.summary);
+
+      result.status = "completed";
+      result.completedAt = new Date().toISOString();
+
+      console.log(`[ProfilingService] Profiling completado: ${profilingId}`);
+    } catch (error) {
+      result.status = "failed";
+      const message = error instanceof Error ? error.message : String(error);
+      result.error = message;
+      console.error(`[ProfilingService] Error en profiling: ${message}`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Recolectar métricas
+   */
+  private async collectMetrics(config: ProfilingConfig): Promise<PerformanceMetrics> {
+    const metrics: PerformanceMetrics = {
+      timestamp: new Date().toISOString(),
+    };
+
+    if (config.includeCPU) {
+      metrics.cpu = {
+        usage: Math.random() * 80 + 10, // 10-90%
+        threads: Math.floor(Math.random() * 8) + 2, // 2-10 threads
+      };
+    }
+
+    if (config.includeMemory) {
+      metrics.memory = {
+        heapUsed: Math.random() * 200 + 50, // 50-250 MB
+        heapTotal: 256,
+        external: Math.random() * 50,
+        rss: Math.random() * 400 + 100, // 100-500 MB
+      };
+    }
+
+    if (config.includeNetwork) {
+      metrics.network = {
+        requestsPerSecond: Math.floor(Math.random() * 100) + 10,
+        averageLatency: Math.random() * 200 + 50, // 50-250 ms
+        bandwidthUsed: Math.random() * 10,
+      };
+    }
+
+    if (config.platform === "web" || config.platform === "mobile") {
+      metrics.rendering = {
+        fps: Math.floor(Math.random() * 20) + 50, // 50-70 FPS
+        frameTime: 1000 / (metrics.rendering?.fps || 60),
+        jank: Math.floor(Math.random() * 5),
+      };
+    }
+
+    return metrics;
+  }
+
+  /**
+   * Generar resumen de métricas
+   */
+  private generateSummary(metrics: PerformanceMetrics[]): ProfilingResult["summary"] {
+    if (metrics.length === 0) return undefined;
+
+    const summary: ProfilingResult["summary"] = {
+      bottlenecks: [],
+    };
+
+    // CPU
+    if (metrics[0].cpu) {
+      const cpuValues = metrics.map((m) => m.cpu?.usage || 0);
+      summary.averageCPU = cpuValues.reduce((a, b) => a + b, 0) / cpuValues.length;
+    }
+
+    // Memoria
+    if (metrics[0].memory) {
+      const memoryValues = metrics.map((m) => m.memory?.heapUsed || 0);
+      summary.peakMemory = Math.max(...memoryValues);
+    }
+
+    // Latencia
+    if (metrics[0].network) {
+      const latencyValues = metrics.map((m) => m.network?.averageLatency || 0);
+      summary.averageLatency = latencyValues.reduce((a, b) => a + b, 0) / latencyValues.length;
+    }
+
+    // FPS
+    if (metrics[0].rendering) {
+      const fpsValues = metrics.map((m) => m.rendering?.fps || 0);
+      summary.averageFPS = fpsValues.reduce((a, b) => a + b, 0) / fpsValues.length;
+    }
+
+    // Identificar cuellos de botella
+    if (summary.averageCPU && summary.averageCPU > 70) {
+      summary.bottlenecks.push("Alto uso de CPU (>70%)");
+    }
+    if (summary.peakMemory && summary.peakMemory > 300) {
+      summary.bottlenecks.push("Alto uso de memoria (>300MB)");
+    }
+    if (summary.averageLatency && summary.averageLatency > 200) {
+      summary.bottlenecks.push("Alta latencia de red (>200ms)");
+    }
+    if (summary.averageFPS && summary.averageFPS < 50) {
+      summary.bottlenecks.push("Bajo FPS (<50)");
+    }
+
+    return summary;
+  }
+
+  /**
+   * Generar recomendaciones
+   */
+  private generateRecommendations(summary?: ProfilingResult["summary"]): string[] {
+    const recommendations: string[] = [];
+
+    if (!summary) return recommendations;
+
+    if (summary.averageCPU && summary.averageCPU > 70) {
+      recommendations.push(
+        "Optimizar cálculos intensivos: considera usar Web Workers o mover lógica pesada al backend"
+      );
+      recommendations.push("Revisar loops innecesarios y operaciones ineficientes");
+    }
+
+    if (summary.peakMemory && summary.peakMemory > 300) {
+      recommendations.push("Implementar garbage collection más agresivo");
+      recommendations.push("Revisar memory leaks: busca referencias circulares no liberadas");
+      recommendations.push("Considerar virtualización de listas largas");
+    }
+
+    if (summary.averageLatency && summary.averageLatency > 200) {
+      recommendations.push("Implementar caching para reducir latencia");
+      recommendations.push("Optimizar queries de base de datos");
+      recommendations.push("Considerar CDN para contenido estático");
+    }
+
+    if (summary.averageFPS && summary.averageFPS < 50) {
+      recommendations.push("Optimizar renderizado: reduce animaciones complejas");
+      recommendations.push("Implementar requestAnimationFrame para animaciones suaves");
+      recommendations.push("Revisar CSS: evita reflows y repaints innecesarios");
+    }
+
+    if (summary.bottlenecks.length === 0) {
+      recommendations.push("✅ La aplicación tiene buen rendimiento en general");
+    }
+
+    return recommendations;
+  }
+
+  /**
+   * Obtener resultado
+   */
+  getProfilingResult(profilingId: string): ProfilingResult | undefined {
+    return this.results.get(profilingId);
+  }
+
+  /**
+   * Generar reporte de profiling
+   */
+  generateProfilingReport(result: ProfilingResult): string {
+    let report = `# Reporte de Profiling y Rendimiento\n\n`;
+    report += `**ID de Profiling**: ${result.profilingId}\n`;
+    report += `**Plataforma**: ${result.config.platform}\n`;
+    report += `**Estado**: ${result.status === "completed" ? "✅ Completado" : "❌ Fallido"}\n\n`;
+
+    if (result.summary) {
+      report += `## Resumen de Métricas\n\n`;
+      report += `| Métrica | Valor |\n`;
+      report += `|--------|-------|\n`;
+
+      if (result.summary.averageCPU !== undefined) {
+        report += `| CPU Promedio | ${result.summary.averageCPU.toFixed(1)}% |\n`;
+      }
+      if (result.summary.peakMemory !== undefined) {
+        report += `| Memoria Pico | ${result.summary.peakMemory.toFixed(1)} MB |\n`;
+      }
+      if (result.summary.averageLatency !== undefined) {
+        report += `| Latencia Promedio | ${result.summary.averageLatency.toFixed(1)} ms |\n`;
+      }
+      if (result.summary.averageFPS !== undefined) {
+        report += `| FPS Promedio | ${result.summary.averageFPS.toFixed(1)} |\n`;
+      }
+
+      report += `\n`;
+    }
+
+    if (result.summary?.bottlenecks && result.summary.bottlenecks.length > 0) {
+      report += `## Cuellos de Botella Identificados\n\n`;
+      for (const bottleneck of result.summary.bottlenecks) {
+        report += `- ⚠️ ${bottleneck}\n`;
+      }
+      report += `\n`;
+    }
+
+    if (result.recommendations.length > 0) {
+      report += `## Recomendaciones de Optimización\n\n`;
+      for (const rec of result.recommendations) {
+        report += `- ${rec}\n`;
+      }
+      report += `\n`;
+    }
+
+    return report;
+  }
+}
+
+/**
+ * Instancia global
+ */
+let profilingServiceInstance: ProfilingService | null = null;
+
+export function getProfilingService(): ProfilingService {
+  if (!profilingServiceInstance) {
+    profilingServiceInstance = new ProfilingService();
+  }
+  return profilingServiceInstance;
+}
+

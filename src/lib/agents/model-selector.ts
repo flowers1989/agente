@@ -427,3 +427,12 @@ export function useModelSelector() {
     generateSelectionReport: ModelSelector.generateSelectionReport,
   };
 }
+
+// Singleton accessor para usar desde tool-registry y otros módulos no-hook.
+let selectorInstance: ModelSelector | null = null;
+export function getModelSelector(): ModelSelector {
+  if (!selectorInstance) {
+    selectorInstance = new ModelSelector();
+  }
+  return selectorInstance;
+}

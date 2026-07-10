@@ -12,6 +12,7 @@ import { getAdapter, type ChatMessage as LLMChatMessage } from "@/lib/agents/ope
 import { streamAgentExecution } from "@/lib/agents/stream-client";
 import { sanitizeLLMOutput } from "@/lib/utils";
 import { exportReport, type ExportFormat } from "@/lib/export-report";
+import { detectDocumentFormat, type DocumentFormat } from "@/lib/services/document-generator";
 import { detectConnectorIntent, executeConnectorIntent, formatConnectorResult } from "@/lib/integrations/intent-detector";
 
 // ==================== HOOK DE EJECUCIÓN ====================
@@ -142,9 +143,11 @@ export function useExecution() {
     }
 
     // ===== DETECCIÓN DE SOLICITUD DE DESCARGA =====
-    // Si el usuario pide un formato descargable (PDF, Excel, etc.), buscamos el
-    // último contenido generado y disparamos la descarga directamente, sin
-    // activar el orquestador. Esto es lo que espera un usuario no técnico.
+    // Si el usuario pide un formato descargable (PDF, Word, Excel, PowerPoint, etc.),
+    // buscamos el último contenido generado y disparamos la descarga directamente.
+    // Para formatos avanzados (docx, pptx, csv, json) usamos el servicio unificado
+    // document-generator (API /api/documents/generate). Para formatos simples
+    // (pdf, xlsx, html, txt, md) usamos el export-report del cliente.
     const downloadRequest = detectDownloadRequest(userMsg.content);
     if (downloadRequest) {
       // Buscar el último output generado en la conversación
@@ -153,7 +156,72 @@ export function useExecution() {
         .find((m) => m.role === "assistant" && m.output?.content)?.output;
 
       if (lastOutput?.content) {
-        // Disparar descarga inmediata
+        // Formatos avanzados que requieren el servicio unificado (server-side)
+        const advancedFormats: DocumentFormat[] = ["docx", "pptx", "csv", "json"];
+        if (downloadRequest.docFormat && advancedFormats.includes(downloadRequest.docFormat)) {
+          // Llamar a la API de generación de documentos
+          (async () => {
+            const simKeyAdv = `${conversation.id}:${userMsg.id}`;
+            if (simulatingRef.current === simKeyAdv) return;
+            simulatingRef.current = simKeyAdv;
+            setWorking(true);
+
+            const processingMsgId = `m-${Date.now()}-assistant-processing`;
+            addMessage(conversation.id, {
+              id: processingMsgId,
+              role: "assistant",
+              content: `Generando tu archivo **${downloadRequest.baseName}.${downloadRequest.ext}**...`,
+              timestamp: new Date().toISOString(),
+              agentStatus: "thinking",
+              steps: [],
+            });
+
+            try {
+              const res = await fetch("/api/documents/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  content: lastOutput.content,
+                  format: downloadRequest.docFormat,
+                  title: downloadRequest.baseName,
+                  filename: downloadRequest.baseName,
+                }),
+              });
+
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: "Error desconocido" }));
+                throw new Error(err.error || `HTTP ${res.status}`);
+              }
+
+              // Recibir el binario y disparar descarga
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${downloadRequest.baseName}.${downloadRequest.ext}`;
+              a.click();
+              URL.revokeObjectURL(url);
+
+              // Actualizar mensaje de procesando → confirmación
+              updateMessage(conversation.id, processingMsgId, {
+                content: `Tu archivo **${downloadRequest.baseName}.${downloadRequest.ext}** se está descargando ahora mismo. Si no inicia automáticamente, revisa la carpeta de descargas de tu navegador.`,
+                agentStatus: "completed",
+              });
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : "Error desconocido";
+              updateMessage(conversation.id, processingMsgId, {
+                content: `❌ Error generando el archivo: ${errMsg}`,
+                agentStatus: "failed",
+              });
+            } finally {
+              setWorking(false);
+              simulatingRef.current = null;
+            }
+          })();
+          return;
+        }
+
+        // Formatos simples: usar export-report del cliente (pdf, xlsx, html, txt, md)
         exportReport(lastOutput.content, downloadRequest.format, downloadRequest.baseName);
 
         // Responder al usuario con un mensaje de confirmación
@@ -1018,7 +1086,11 @@ function isVagueObjective(objective: string): boolean {
 // ==================== DETECCIÓN DE DESCARGA ====================
 // Detecta si el usuario está pidiendo descargar el contenido en un formato
 // específico. Soporta lenguaje natural en español e inglés.
-function detectDownloadRequest(message: string): { format: ExportFormat; ext: string; baseName: string } | null {
+// Ahora usa el servicio unificado document-generator para detectar formatos
+// avanzados: pdf, docx, xlsx, pptx, html, csv, json, txt, md
+function detectDownloadRequest(
+  message: string
+): { format: ExportFormat; ext: string; baseName: string; docFormat: DocumentFormat | null } | null {
   const lower = message.toLowerCase().trim();
 
   // Patrones de solicitud de descarga
@@ -1026,41 +1098,38 @@ function detectDownloadRequest(message: string): { format: ExportFormat; ext: st
     /d[aá]me(lo)?\s+(en|como|el|un)/i,
     /descarga(r|lo|me)?/i,
     /export(a(r|lo|me)?)?/i,
-    /genera(r)?\s+(el|un|el\s+archivo)/i,
-    /quiero\s+(el|un)\s+(archivo|reporte|documento)/i,
+    /genera(r)?\s+(el|un|el\s+archivo|una?\s+(presentación|reporte|documento))/i,
+    /quiero\s+(el|un)\s+(archivo|reporte|documento|presentación|excel|word|pdf)/i,
     /env[ií]a(me)?\s+(el|un)/i,
     /download/i,
     /guardar?\s+(como|en)/i,
     /en\s+formato/i,
-    /como\s+(archivo|documento|reporte)/i,
+    /como\s+(archivo|documento|reporte|presentación)/i,
+    /cr[eé]a(me)?\s+(un|una|el|la)?\s*(pdf|docx?|xlsx?|pptx?|excel|word|presentaci)/i,
+    /haz(me)?\s+(un|una|el|la)?\s*(pdf|docx?|xlsx?|pptx?|excel|word|presentaci)/i,
   ];
 
   const isDownloadRequest = downloadTriggers.some((pattern) => pattern.test(lower));
   if (!isDownloadRequest) return null;
 
-  // Detectar el formato solicitado
-  if (/\bpdf\b/.test(lower)) {
-    return { format: "pdf", ext: "pdf", baseName: "reporte" };
-  }
-  if (/\b(excel|xlsx|hoja\s+de\s+c[aá]lculo|spreadsheet)\b/.test(lower)) {
-    return { format: "excel", ext: "xlsx", baseName: "reporte" };
-  }
-  if (/\b(html|p[aá]gina\s+web|web)\b/.test(lower)) {
-    return { format: "html", ext: "html", baseName: "reporte" };
-  }
-  if (/\b(txt|texto\s+plano|plain\s+text)\b/.test(lower)) {
-    return { format: "txt", ext: "txt", baseName: "reporte" };
-  }
-  if (/\b(markdown|md|mark\s+down)\b/.test(lower)) {
-    return { format: "markdown", ext: "md", baseName: "reporte" };
-  }
+  // Usar el detector del servicio unificado (soporta docx, pptx, csv, json, etc.)
+  const detection = detectDocumentFormat(message);
+
+  // Mapear a formatos legacy de export-report (para compatibilidad con cliente)
+  if (detection.format === "pdf") return { format: "pdf", ext: "pdf", baseName: "reporte", docFormat: "pdf" };
+  if (detection.format === "xlsx") return { format: "excel", ext: "xlsx", baseName: "reporte", docFormat: "xlsx" };
+  if (detection.format === "html") return { format: "html", ext: "html", baseName: "reporte", docFormat: "html" };
+  if (detection.format === "txt") return { format: "txt", ext: "txt", baseName: "reporte", docFormat: "txt" };
+  if (detection.format === "md") return { format: "markdown", ext: "md", baseName: "reporte", docFormat: "md" };
+
+  // Formatos nuevos que solo se generan vía API (docx, pptx, csv, json)
+  if (detection.format === "docx") return { format: "pdf", ext: "docx", baseName: "documento", docFormat: "docx" };
+  if (detection.format === "pptx") return { format: "pdf", ext: "pptx", baseName: "presentacion", docFormat: "pptx" };
+  if (detection.format === "csv") return { format: "txt", ext: "csv", baseName: "datos", docFormat: "csv" };
+  if (detection.format === "json") return { format: "txt", ext: "json", baseName: "datos", docFormat: "json" };
 
   // Si pide descarga sin especificar formato, usar PDF por defecto
-  if (isDownloadRequest) {
-    return { format: "pdf", ext: "pdf", baseName: "reporte" };
-  }
-
-  return null;
+  return { format: "pdf", ext: "pdf", baseName: "reporte", docFormat: "pdf" };
 }
 
 function getInitialMessageForCategory(category: string): string {

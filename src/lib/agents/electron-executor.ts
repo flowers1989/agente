@@ -385,24 +385,39 @@ linux:
    * Generar reporte de compilación
    */
   generateBuildReport(results: BuildResult[]): string {
-    let report = `# Reporte de Compilación Electron\n\n`;
-    report += `**Fecha**: ${new Date().toISOString()}\n`;
-    report += `**Total de compilaciones**: ${results.length}\n`;
-    report += `**Exitosas**: ${results.filter((r) => r.success).length}\n`;
-    report += `**Fallidas**: ${results.filter((r) => !r.success).length}\n\n`;
+    let report = `# Reporte de Compilación Electron
 
-    report += `## Resultados Detallados\n\n`;
+`;
+    report += `**Fecha**: ${new Date().toISOString()}
+`;
+    report += `**Total de compilaciones**: ${results.length}
+`;
+    report += `**Exitosas**: ${results.filter((r) => r.success).length}
+`;
+    report += `**Fallidas**: ${results.filter((r) => !r.success).length}
+
+`;
+
+    report += `## Resultados Detallados
+
+`;
     for (const result of results) {
-      report += `### ${result.platform.toUpperCase()} (${result.architecture})\n`;
-      report += `**Estado**: ${result.success ? "✅ Exitosa" : "❌ Fallida"}\n`;
+      report += `### ${result.platform.toUpperCase()} (${result.architecture})
+`;
+      report += `**Estado**: ${result.success ? "✅ Exitosa" : "❌ Fallida"}
+`;
 
       if (result.success) {
-        report += `**Archivo**: ${result.outputFile}\n`;
-        report += `**Tamaño**: ${(result.fileSize! / 1024 / 1024).toFixed(2)} MB\n`;
+        report += `**Archivo**: ${result.outputFile}
+`;
+        report += `**Tamaño**: ${(result.fileSize! / 1024 / 1024).toFixed(2)} MB
+`;
       } else {
-        report += `**Error**: ${result.error}\n`;
+        report += `**Error**: ${result.error}
+`;
       }
-      report += `\n`;
+      report += `
+`;
     }
 
     return report;

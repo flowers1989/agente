@@ -306,19 +306,32 @@ Para más información, consulta la documentación del proyecto.
    * Generar reporte de empaquetado
    */
   generatePackageReport(result: PackageResult): string {
-    let report = `# Reporte de Empaquetado\n\n`;
+    let report = `# Reporte de Empaquetado
+
+`;
 
     if (result.success) {
-      report += `**Estado**: ✅ Exitoso\n\n`;
-      report += `## Información del Paquete\n`;
-      report += `- **Nombre**: ${result.fileName}\n`;
-      report += `- **Tamaño**: ${result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(2) + " MB" : "N/A"}\n`;
-      report += `- **Archivos Incluidos**: ${result.includedFiles || "N/A"}\n`;
-      report += `- **Checksum MD5**: ${result.checksumMD5}\n`;
-      report += `- **Ubicación**: ${result.zipPath}\n`;
+      report += `**Estado**: ✅ Exitoso
+
+`;
+      report += `## Información del Paquete
+`;
+      report += `- **Nombre**: ${result.fileName}
+`;
+      report += `- **Tamaño**: ${result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(2) + " MB" : "N/A"}
+`;
+      report += `- **Archivos Incluidos**: ${result.includedFiles || "N/A"}
+`;
+      report += `- **Checksum MD5**: ${result.checksumMD5}
+`;
+      report += `- **Ubicación**: ${result.zipPath}
+`;
     } else {
-      report += `**Estado**: ❌ Fallido\n\n`;
-      report += `**Error**: ${result.error}\n`;
+      report += `**Estado**: ❌ Fallido
+
+`;
+      report += `**Error**: ${result.error}
+`;
     }
 
     return report;
