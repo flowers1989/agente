@@ -14,6 +14,7 @@ import type { ToolExecutionResult } from "./tool-registry";
 import { getAdapter } from "./opencode-adapter";
 import { type AgentMode, ESTIMATED_COST_PER_TASK } from "../config/model-routing";
 import { createTodoManager, type TodoManager } from "./todo-manager";
+import { executeAgentLoop, type LoopIteration } from "./real-agent-loop";
 
 // ==================== ORQUESTADOR DE AGENTES ====================
 // Coordina el flujo completo de los 7 agentes:
@@ -165,9 +166,9 @@ export class AgentOrchestrator {
         callbacks.onMetricsUpdate?.(metrics, anomalies);
       });
 
-      // ========== FASE 3: EJECUCIÓN (Ejecutor + Verificador) ==========
-      // Ejecutor  (economy): deepseek-v4-flash | (quality): kimi-k2.7-code
-      // Verificador (economy): deepseek-v4-flash | (quality): glm-5.1
+      // ========== FASE 3: EJECUCIÓN — AGENT LOOP REAL ==========
+      // Reemplazamos el for lineal con logs simulados por el AgentLoop real:
+      // pensar → actuar → observar → evaluar → repetir
       let lastVerification: VerificationResult = {
         isValid: true,
         errors: [],
@@ -176,91 +177,65 @@ export class AgentOrchestrator {
         recommendation: "",
       };
 
-      for (let i = 0; i < plan.steps.length; i++) {
-        const step = plan.steps[i];
-        execution.currentStepIndex = i;
-
-        // Sincronizar estado en el plan para que el reportero vea el estado real
-        step.status = "running";
-        step.startedAt = new Date().toISOString();
-
-        // Determinar el agentStatus basado en el agente que ejecuta este paso
-        const agentStatus = this.getAgentStatusForStep(step);
-        callbacks.onStepStarted?.(step, agentStatus);
-        this.todoManager.startStep(step.id);
-
-        // Emitir logs progresivamente (simulado)
-        const template = TASK_TEMPLATES[category];
-        const stepTemplate = template.steps[i];
-        for (const logMessage of stepTemplate.logs) {
-          await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
-          callbacks.onStepProgress?.(step.id, logMessage);
-        }
-
-        // Ejecutar paso
-        const result = await this.executor.executeStep(step, conversationId);
-
-        if (result.success) {
-          // En modo económico no verificamos pasos exitosos para ahorrar tokens.
-          // Solo se invoca al verificador cuando hay errores.
-          step.status = "completed";
-          step.duration = result.duration;
-          step.result = result.result || "";
-          step.output = result.output;
-          step.completedAt = new Date().toISOString();
-          this.todoManager.completeStep(step.id, result.result || "");
-
-          callbacks.onStepCompleted?.(step, result.result || "", result.output);
-        } else {
-          step.status = "failed";
-          step.error = result.error || "Error";
-          step.completedAt = new Date().toISOString();
-
-          execution.errors.push(result.error || "Error");
-          this.todoManager.failStep(step.id, result.error || "Error");
-          callbacks.onStepFailed?.(step, result.error || "Error");
-
-          // Verificar si se puede reintentar solo en errores
-          lastVerification = await this.verifier.verifyStep(step, result, conversationId);
-          callbacks.onVerificationResult?.(lastVerification);
-
-          if (lastVerification.action === "retry") {
-            // Reintentar
-            this.todoManager.retryStep(step.id);
-            step.status = "running";
-            const retryResult = await this.executor.executeStep(step, conversationId);
-            if (retryResult.success) {
-              step.status = "completed";
-              step.duration = retryResult.duration;
-              step.result = retryResult.result || "";
-              step.error = undefined;
-              step.completedAt = new Date().toISOString();
-              callbacks.onStepCompleted?.(step, retryResult.result || "", retryResult.output);
+      // Ejecutar el loop autónomo
+      const loopResult = await executeAgentLoop({
+        conversationId,
+        userId: "user",
+        objective: userObjective,
+        maxIterations: mode === "quality" ? 20 : 15,
+        mode,
+        onIteration: (iteration: LoopIteration) => {
+          // Convertir cada iteración del loop en un "step" visible para la UI
+          if (iteration.toolName) {
+            const step: ExecutionStep = {
+              id: `loop-${iteration.iterationNumber}`,
+              stepNumber: iteration.iterationNumber,
+              description: iteration.thought.slice(0, 200),
+              toolName: iteration.toolName,
+              toolCategory: "Adicionales" as const,
+              toolParams: iteration.toolParams,
+              status: iteration.evaluation.isSuccessful ? "completed" : "failed",
+              startedAt: new Date(Date.now() - iteration.duration).toISOString(),
+              completedAt: new Date().toISOString(),
+              duration: iteration.duration,
+              result: iteration.observation.slice(0, 500),
+              error: iteration.error,
+              logs: [],
+              produces: "output" as const,
+              agent: "executor",
+            };
+            if (iteration.evaluation.isSuccessful) {
+              callbacks.onStepStarted?.(step, "executing");
+              callbacks.onStepProgress?.(step.id, iteration.thought);
+              callbacks.onStepCompleted?.(step, iteration.observation.slice(0, 500), {
+                type: "text",
+                content: iteration.observation,
+                title: `${iteration.toolName} - Output`,
+              });
             } else {
-              // Falló definitivamente
-              step.status = "failed";
-              step.error = retryResult.error || "Error";
-              step.completedAt = new Date().toISOString();
-              execution.status = "failed";
-              break;
+              callbacks.onStepStarted?.(step, "executing");
+              callbacks.onStepProgress?.(step.id, iteration.thought);
+              callbacks.onStepFailed?.(step, iteration.error || "Error desconocido");
             }
-          } else if (lastVerification.action === "fail") {
-            execution.status = "failed";
-            break;
           }
-          // Si action === "skip", continuamos al siguiente paso
-          if (lastVerification.action === "skip") {
-            this.todoManager.skipStep(step.id, lastVerification.recommendation || "Verificador indicó omitir");
+        },
+        onThought: (thought: string) => {
+          // Emitir el pensamiento del agente como progreso
+          const planStep = plan.steps[0];
+          if (planStep) {
+            callbacks.onStepProgress?.(planStep.id, thought.slice(0, 300));
           }
-        }
-      }
-
-      // Capturar el output final del último paso completado (si existe)
-      // Esto permite que tareas de contenido usen el documento generado como reporte final.
-      const lastCompletedStep = [...execution.plan.steps].reverse().find((s) => s.status === "completed");
-      if (lastCompletedStep?.output) {
-        execution.finalOutput = lastCompletedStep.output;
-      }
+        },
+        onToolStart: (toolName: string, params: Record<string, unknown>) => {
+          console.log(`[Orchestrator] Tool start: ${toolName}`, params);
+        },
+        onToolEnd: (toolName: string, result: ToolExecutionResult) => {
+          console.log(`[Orchestrator] Tool end: ${toolName} → ${result.success ? "success" : "fail"}`);
+        },
+        onError: (error: string) => {
+          console.error(`[Orchestrator] Loop error: ${error}`);
+        },
+      });
 
       // Sincronizar tokens/costo reales acumulados por el adaptador
       const usage = this.adapter.getUsageStats();
@@ -270,21 +245,39 @@ export class AgentOrchestrator {
       // Detener monitoreo
       this.monitor.stopMonitoring();
 
-      if (execution.status !== "failed") {
+      if (loopResult.success) {
         execution.status = "completed";
         execution.completedAt = new Date().toISOString();
+      } else {
+        execution.status = loopResult.errorMessage ? "failed" : "completed";
+        execution.completedAt = new Date().toISOString();
+        if (loopResult.errorMessage) {
+          execution.errors.push(loopResult.errorMessage);
+        }
+      }
+
+      // Guardar el output final del loop
+      if (loopResult.finalOutput) {
+        execution.finalOutput = {
+          type: "text",
+          content: loopResult.finalOutput,
+          title: "Resultado del agente autónomo",
+        };
       }
 
       // Finalizar el bucle de atención
       const todoFinal = this.todoManager.finalize(execution.status !== "failed");
       const todoProgress = this.todoManager.getProgress();
-      // Guardar el todo.md en memoria de trabajo para referencia del reportero
       if (todoFinal) {
-        useMemoryStore.getState().store("working", `todo:${conversationId}`, this.todoManager.toMarkdown(), { conversationId, tags: ["todo", "progress"] });
+        useMemoryStore.getState().store(
+          "working",
+          `todo:${conversationId}`,
+          this.todoManager.toMarkdown(),
+          { conversationId, tags: ["todo", "progress"] }
+        );
       }
+
       // ========== FASE 5: OPTIMIZACIÓN (Optimizador) ==========
-      // Optimizador (economy): minimax-m3 | (quality): deepseek-v4-pro
-      // Omitido en modo economy para reducir tokens; activo en modo quality.
       const optimizations: OptimizationResult = {
         suggestions: [],
         savings: { timeReduction: "0s", costReduction: "$0.00" },
@@ -292,7 +285,6 @@ export class AgentOrchestrator {
       callbacks.onOptimizationSuggestions?.(optimizations);
 
       // ========== FASE 6: REPORTE (Reportero) ==========
-      // Modelo (economy): minimax-m3 | (quality): qwen3.6-plus
       const report = await this.reporter.generateReport(execution, conversationId, category);
       callbacks.onReportGenerated?.(report);
 
@@ -300,13 +292,15 @@ export class AgentOrchestrator {
       const monitorReport = this.monitor.generateFinalReport(execution);
 
       // ========== APRENDER DE LA CONVERSACIÓN ==========
-      // Guardar en memoria episódica y semántica
-      const learnedPatterns = [TASK_TEMPLATES[category].learnedPattern];
-      const summary = `${category}: ${objective.slice(0, 100)}`;
-      useMemoryStore.getState().learnFromConversation(conversationId, summary, learnedPatterns, execution.status === "completed");
+      const learnedPatterns = [
+        `${category}: ${loopResult.toolsUsed.join(" → ")}`,
+        `${loopResult.iterations.length} iteraciones en ${Math.round(loopResult.totalDuration / 1000)}s`,
+      ];
+      const summary = `${category}: ${objective.slice(0, 100)} (${loopResult.iterations.length} iteraciones)`;
+      useMemoryStore.getState().learnFromConversation(conversationId, summary, learnedPatterns, loopResult.success);
 
       const result: OrchestratorResult = {
-        success: execution.status === "completed",
+        success: loopResult.success,
         analysis,
         plan,
         execution,

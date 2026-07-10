@@ -44,7 +44,19 @@ export function useExecution() {
   const simulatingRef = useRef<string | null>(null);
 
   const updateWorkspaceForStep = useCallback((step: ExecutionStep, output?: MessageOutput) => {
-    if (output?.type === "image") {
+    // SOLO actualizar el workspace si hay output REAL de la herramienta.
+    // Ya NO mostramos datos random/hardcodeados como antes.
+    if (!output) {
+      // Sin output todavía → mostrar mensaje simple de progreso
+      setWorkspace({
+        activeTab: "output",
+        output: { type: "text", title: step.description, content: `Ejecutando: ${step.description}...` },
+      });
+      return;
+    }
+
+    // Output tipo imagen (screenshot del browser, chart, etc.)
+    if (output.type === "image") {
       setWorkspace({
         activeTab: "browser",
         browser: {
@@ -56,7 +68,9 @@ export function useExecution() {
       });
       return;
     }
-    if (output?.type === "code") {
+
+    // Output tipo código (resultado de Code Generation, etc.)
+    if (output.type === "code") {
       setWorkspace({
         activeTab: "files",
         files: [{ name: output.title || "output.ts", path: "/output.ts", type: "file", modified: new Date().toISOString() }],
@@ -64,7 +78,9 @@ export function useExecution() {
       });
       return;
     }
-    if (output?.type === "file") {
+
+    // Output tipo archivo
+    if (output.type === "file") {
       setWorkspace({
         activeTab: "files",
         files: [{ name: output.filename || output.title || "output.md", path: "/output.md", type: "file", modified: new Date().toISOString() }],
@@ -73,52 +89,28 @@ export function useExecution() {
       return;
     }
 
-    if (step.produces === "browser") {
-      const url = typeof step.toolParams?.url === "string" ? step.toolParams.url : "https://example.com/search";
-      setWorkspace({
-        activeTab: "browser",
-        browser: { url, title: step.description, loading: true },
-      });
-    } else if (step.produces === "terminal") {
-      const ws = useExecutionStore.getState().workspace;
-      if (!ws.terminal || ws.terminal.lines.length === 0) {
-        setWorkspace({
-          activeTab: "terminal",
-          terminal: {
-            lines: [{ type: "input", text: `$ ${step.description.toLowerCase().replace(/\s/g, "-")}` }],
-            cwd: "/workspace",
-          },
-        });
-      } else {
-        setWorkspace({ activeTab: "terminal" });
-      }
-    } else if (step.produces === "files") {
-      setWorkspace({
-        activeTab: "files",
-        files: [
-          { name: "src", path: "/src", type: "dir", modified: new Date().toISOString() },
-          { name: "package.json", path: "/package.json", type: "file", size: 1840, modified: new Date().toISOString() },
-          { name: "README.md", path: "/README.md", type: "file", size: 4200, modified: new Date().toISOString() },
-          { name: "index.ts", path: "/src/index.ts", type: "file", size: 580, modified: new Date().toISOString() },
-          { name: "solution.ts", path: "/src/solution.ts", type: "file", size: 2470, modified: new Date().toISOString() },
-        ],
-        activeFile: { name: "solution.ts", language: "typescript", content: `// ${step.description}\n// Generando...\n` },
-      });
-    } else if (step.produces === "data") {
-      setWorkspace({
-        activeTab: "data",
-        output: {
-          type: "text",
-          title: step.description,
-          content: `Procesando datos para: ${step.description}\n\nFilas analizadas: ${Math.floor(Math.random() * 8000) + 1000}\nCampos detectados: ${Math.floor(Math.random() * 20) + 5}\nOutliers: ${Math.floor(Math.random() * 50)}`,
-        },
-      });
-    } else {
+    // Output tipo HTML (dashboard, vista previa web, etc.)
+    if (output.type === "html") {
       setWorkspace({
         activeTab: "output",
-        output: { type: "text", title: step.description, content: `Trabajando en: ${step.description}...` },
+        output: {
+          type: "html",
+          title: output.title || step.description,
+          content: output.content,
+        },
       });
+      return;
     }
+
+    // Output tipo texto/data — mostrar el contenido real
+    setWorkspace({
+      activeTab: "output",
+      output: {
+        type: "text",
+        title: output.title || step.description,
+        content: output.content,
+      },
+    });
   }, [setWorkspace]);
 
   useEffect(() => {
