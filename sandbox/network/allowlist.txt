@@ -1,0 +1,31 @@
+# ==================== ALLOWLIST DE DOMINIOS ====================
+# Lista de dominios permitidos por el proxy Squid.
+# Wildcard con .example.com cubre todos los subdominios.
+#
+# Añade aquí solo lo estrictamente necesario para el agente.
+
+# PyPI / Python
+.pypi.org
+.files.pythonhosted.org
+.pythonhosted.org
+
+# npm / Node
+.npmjs.org
+.registry.npmjs.org
+.nodejs.org
+
+# GitHub
+.github.com
+.raw.githubusercontent.com
+.codeload.github.com
+.objects.githubusercontent.com
+
+# Documentación y APIs de uso común
+.google.com
+.googleapis.com
+.cdnjs.cloudflare.com
+.unpkg.com
+.jsdelivr.net
+
+# DNS-over-HTTPS opcional
+.dns.google
