@@ -190,3 +190,25 @@ model CronJobLog {
 
   @@index([taskId, startedAt])
 }
+
+// ==================== SESIONES DE SANDBOX ====================
+// Persistencia de los contenedores Docker del sandbox.
+// Permite reconciliación al arranque (matar huérfanos) y TTL/GC.
+// Inspirado en el modelo de sesión de Manus IA.
+model SandboxSession {
+  id            String    @id @default(cuid())
+  taskId        String    @unique
+  userId        String
+  containerId   String
+  imageName     String    @default("mexa-sandbox:latest")
+  status        String    @default("running") // "running" | "stopped" | "expired" | "error"
+  networkMode   String    @default("none")    // "none" | "allowlist"
+  lastActivityAt DateTime @default(now())
+  expiresAt     DateTime  @default(now())    // TTL: 30 min desde última actividad
+  createdAt     DateTime  @default(now())
+  stoppedAt     DateTime?
+
+  @@index([userId])
+  @@index([status, expiresAt])
+  @@index([lastActivityAt])
+}

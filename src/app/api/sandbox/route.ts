@@ -7,6 +7,10 @@ import { getSandboxManager } from "@/lib/sandbox/SandboxManager";
 
 const CreateSchema = z.object({
   taskId: z.string().min(1).max(200),
+  networkMode: z.enum(["none", "allowlist"]).optional().default("none"),
+  memoryMB: z.number().int().min(128).max(4096).optional(),
+  cpus: z.number().int().min(1).max(8).optional(),
+  ttlMinutes: z.number().int().min(5).max(1440).optional(), // 5 min — 24 h
 });
 
 export async function POST(request: Request) {
@@ -35,12 +39,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const sandbox = await manager.createSandbox(validation.data.taskId, userId);
+    const sandbox = await manager.createSandbox(validation.data.taskId, userId, {
+      networkMode: validation.data.networkMode,
+      memoryMB: validation.data.memoryMB,
+      cpus: validation.data.cpus,
+      ttlMinutes: validation.data.ttlMinutes,
+    });
     return NextResponse.json({
       sandbox: {
         taskId: sandbox.taskId,
         containerId: sandbox.containerId,
         createdAt: sandbox.createdAt,
+        networkMode: sandbox.networkMode,
       },
     });
   } catch (error) {

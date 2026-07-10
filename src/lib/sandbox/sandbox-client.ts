@@ -105,14 +105,31 @@ export async function clientReadFile(taskId: string, path: string): Promise<stri
 }
 
 // ---- Escribir archivo en el sandbox via exec ----
+// Browser-safe: NO usa Buffer.from (que solo existe en Node.js).
+// Usa TextEncoder + conversión manual a base64 compatible con browsers modernos.
 export async function clientWriteFile(taskId: string, path: string, content: string): Promise<void> {
-  // Usar printf para evitar problemas con caracteres especiales
-  const encoded = Buffer.from(content).toString("base64");
+  const encoded = browserBase64Encode(content);
   const result = await clientExec(
     taskId,
-    `mkdir -p "$(dirname ${JSON.stringify(path)})" && echo ${JSON.stringify(encoded)} | base64 -d > ${JSON.stringify(path)}`
+    `mkdir -p "$(dirname ${JSON.stringify(path)})" && printf %s ${JSON.stringify(encoded)} | base64 -d > ${JSON.stringify(path)}`
   );
   if (result.exitCode !== 0) throw new Error(result.stderr || "No se pudo escribir el archivo");
+}
+
+// Codificación base64 browser-safe (sin Buffer).
+// Soporta Unicode completo (incluido emojis/CJK) vía TextEncoder.
+function browserBase64Encode(str: string): string {
+  if (typeof window === "undefined") {
+    // Server-side: usar Buffer si está disponible (más rápido)
+    return Buffer.from(str, "utf8").toString("base64");
+  }
+  // Browser: usar btoa con manejo de UTF-8
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 // ---- Listar archivos del sandbox via exec ----
@@ -132,4 +149,77 @@ export async function clientListFiles(taskId: string, dirPath: string): Promise<
       return { name, isDirectory, size };
     })
     .filter((f) => f.name);
+}
+
+// ---- Streaming SSE en vivo del output de un comando ----
+// Llama onStdout/onStderr a medida que llega output, y onDone al terminar.
+// Cancelable: devuelve un AbortController; llamar .abort() para parar.
+export interface StreamHandlers {
+  onStdout?: (text: string) => void;
+  onStderr?: (text: string) => void;
+  onDone?: (info: { exitCode: number; durationMs: number; timedOut: boolean }) => void;
+  onError?: (message: string) => void;
+}
+
+export async function clientExecStream(
+  taskId: string,
+  command: string,
+  handlers: StreamHandlers,
+  options?: { timeoutMs?: number; cwd?: string }
+): Promise<AbortController> {
+  const controller = new AbortController();
+
+  fetch(`/api/sandbox/${encodeURIComponent(taskId)}/exec/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command, ...options }),
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok || !res.body) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        handlers.onError?.(err.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE frames separados por \n\n
+        let frameEnd: number;
+        while ((frameEnd = buffer.indexOf("\n\n")) !== -1) {
+          const frame = buffer.slice(0, frameEnd);
+          buffer = buffer.slice(frameEnd + 2);
+
+          let event = "message";
+          let data = "";
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("event: ")) event = line.slice(7);
+            else if (line.startsWith("data: ")) data = line.slice(6);
+          }
+
+          try {
+            const payload = JSON.parse(data);
+            if (event === "stdout") handlers.onStdout?.(payload.text);
+            else if (event === "stderr") handlers.onStderr?.(payload.text);
+            else if (event === "done") handlers.onDone?.(payload);
+            else if (event === "error") handlers.onError?.(payload.message);
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      if (err.name !== "AbortError") {
+        handlers.onError?.(err.message ?? "Error de red");
+      }
+    });
+
+  return controller;
 }

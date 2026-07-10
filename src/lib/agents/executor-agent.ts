@@ -4,6 +4,7 @@ import { BaseAgent } from "./base-agent";
 import type { ExecutionStep } from "../types";
 import { useMemoryStore } from "../memory/memory-store";
 import { toolRegistry, type ToolExecutionResult } from "./tool-registry";
+import { getAuthUser } from "../api/auth";
 
 // ==================== AGENTE 3: EJECUTOR ====================
 // Modelo: DeepSeek V4 Flash (velocidad extrema, bajo costo)
@@ -35,7 +36,7 @@ export class ExecutorAgent extends BaseAgent {
 
     // 3. Ejecutar la herramienta vía ToolRegistry
     const startTime = Date.now();
-    const userId = "user"; // TODO: reemplazar por auth real
+    const userId = getAuthUser().id;
 
     const toolResult = await toolRegistry.execute(step.toolName, params, {
       conversationId,
