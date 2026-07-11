@@ -38,6 +38,7 @@ import {
   readFileFromSandbox,
   openFileInSandbox,
   saveFileInSandbox,
+  setUncollapseWorkspaceHandler,
   type Language,
 } from "@/lib/sandbox/sandbox-store";
 
@@ -60,11 +61,54 @@ export function SandboxPanel() {
   const terminalLines = useSandboxStore((s) => s.terminalLines);
 
   const [running, setRunning] = useState(false);
+  const [stats, setStats] = useState<{
+    cpuPercent: number;
+    memoryUsage: number;
+    memoryLimit: number;
+    pids: number;
+  } | null>(null);
 
   // Detectar Docker al montar
   useEffect(() => {
     checkDockerAvailability();
   }, []);
+
+  // ===== Registrar handler para descolapsar el workspace desde el sandbox-store =====
+  // Cuando el agente ejecuta código o escribe archivos, el sandbox-store llama
+  // a uncollapseWorkspace() que invoca este handler para mostrar el panel.
+  useEffect(() => {
+    setUncollapseWorkspaceHandler(() => {
+      if (useExecutionStore.getState().workspaceCollapsed) {
+        useExecutionStore.getState().setWorkspaceCollapsed(false);
+      }
+    });
+    return () => setUncollapseWorkspaceHandler(null);
+  }, []);
+
+  // ===== Polling de stats en vivo (CPU/RAM/PIDs) cada 3s =====
+  useEffect(() => {
+    if (!taskId || status !== "active") {
+      setStats(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchStats = async () => {
+      try {
+        const res = await fetch(`/api/sandbox/${encodeURIComponent(taskId)}/stats`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data.stats) setStats(data.stats);
+      } catch {
+        // ignore
+      }
+    };
+    fetchStats();
+    const interval = setInterval(fetchStats, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [taskId, status]);
 
   const handleStart = useCallback(async () => {
     const tid = currentConversationId || `sandbox-${Date.now()}`;
@@ -74,6 +118,7 @@ export function SandboxPanel() {
   }, [currentConversationId]);
 
   const handleStop = useCallback(async () => {
+    setStats(null);
     await stopSandbox();
   }, []);
 
@@ -91,6 +136,9 @@ export function SandboxPanel() {
   }
 
   const isActive = status === "active" && !!taskId;
+  const memPercent = stats && stats.memoryLimit > 0
+    ? Math.round((stats.memoryUsage / stats.memoryLimit) * 100)
+    : 0;
 
   return (
     <motion.aside
@@ -110,6 +158,41 @@ export function SandboxPanel() {
             <code className="text-[10px] font-mono text-muted-foreground truncate">
               {containerId.slice(0, 12)}
             </code>
+          )}
+          {/* ===== Stats en vivo (CPU/RAM) ===== */}
+          {isActive && stats && (
+            <div className="flex items-center gap-2 ml-1 px-1.5 py-0.5 rounded bg-muted/50 border border-border/50">
+              <div className="flex items-center gap-1" title={`CPU: ${stats.cpuPercent}%`}>
+                <span className="text-[9px] text-muted-foreground/70">CPU</span>
+                <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full transition-all",
+                      stats.cpuPercent > 80 ? "bg-destructive" : stats.cpuPercent > 50 ? "bg-amber-500" : "bg-emerald-500"
+                    )}
+                    style={{ width: `${Math.min(100, stats.cpuPercent)}%` }}
+                  />
+                </div>
+                <span className="text-[9px] font-mono text-foreground/80 w-6">{stats.cpuPercent}%</span>
+              </div>
+              <div className="flex items-center gap-1" title={`RAM: ${formatBytes(stats.memoryUsage)} / ${formatBytes(stats.memoryLimit)}`}>
+                <span className="text-[9px] text-muted-foreground/70">RAM</span>
+                <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full transition-all",
+                      memPercent > 80 ? "bg-destructive" : memPercent > 50 ? "bg-amber-500" : "bg-emerald-500"
+                    )}
+                    style={{ width: `${Math.min(100, memPercent)}%` }}
+                  />
+                </div>
+                <span className="text-[9px] font-mono text-foreground/80">{memPercent}%</span>
+              </div>
+              <div className="flex items-center gap-0.5" title={`Procesos: ${stats.pids}`}>
+                <span className="text-[9px] text-muted-foreground/70">PIDs</span>
+                <span className="text-[9px] font-mono text-foreground/80">{stats.pids}</span>
+              </div>
+            </div>
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -860,4 +943,12 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+}
+
+// Formatea bytes a MB/GB para stats de memoria del contenedor.
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
 }

@@ -67,3 +67,6 @@ db/custom.db
 
 # Archivo de proceso puerto
 3001
+# Sandbox
+sandbox/.dockerfile-hash
+dev.db*

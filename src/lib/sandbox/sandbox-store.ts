@@ -8,6 +8,20 @@ import { create } from "zustand";
 // - ChatPanel (centro): para añadir botón "Ejecutar en Sandbox" a code blocks
 // - use-execution hook: para auto-iniciar sandbox cuando empieza una tarea
 
+// Importación diferida para evitar dependencia circular con store-execution.
+// Se usa dentro de las funciones, no a nivel de módulo.
+let _uncollapseWorkspace: (() => void) | null = null;
+export function setUncollapseWorkspaceHandler(fn: (() => void) | null) {
+  _uncollapseWorkspace = fn;
+}
+function uncollapseWorkspace() {
+  try {
+    _uncollapseWorkspace?.();
+  } catch {
+    // ignore — puede no estar listo aún
+  }
+}
+
 export type SandboxStatus =
   | "unknown"
   | "checking"
@@ -180,6 +194,7 @@ export async function runCodeInSandbox(
 
   store.addTerminalLine({ type: "input", text: `[${language}] ${code}` });
   store.setActiveTab("terminal");
+  uncollapseWorkspace(); // Mostrar el panel del sandbox al usuario
 
   try {
     const result = await clientRunCode(sid, language, code);
@@ -234,6 +249,7 @@ export async function runCodeInSandboxStream(
   const command = `${runner} ${tmpFile}`;
   store.addTerminalLine({ type: "input", text: `$ ${command}` });
   store.setActiveTab("terminal");
+  uncollapseWorkspace(); // Mostrar el panel del sandbox al usuario
 
   const controller = await clientExecStream(sid, command, {
     onStdout: (text) => {
@@ -277,6 +293,7 @@ export async function runCommandInSandboxStream(
 
   store.addTerminalLine({ type: "input", text: `$ ${command}` });
   store.setActiveTab("terminal");
+  uncollapseWorkspace(); // Mostrar el panel del sandbox al usuario
 
   const controller = await clientExecStream(sid, command, {
     onStdout: (text) => {
@@ -607,6 +624,7 @@ export async function deployWebProjectToSandbox(
 
   // Cambiar al tab de archivos para ver el proyecto
   store.setActiveTab("files");
+  uncollapseWorkspace(); // Mostrar el panel del sandbox al usuario
   store.addTerminalLine({
     type: "system",
     text: `Proyecto web desplegado en /workspace con ${result.written} archivos.`,
