@@ -277,7 +277,73 @@ export class ToolRegistry {
   };
 
   private bashExecutionExecutor: ToolExecutor = async (params, context) => {
-    return this.executeCodeInSandbox("bash", String(params.command || params.code), context);
+    const command = String(params.command || params.code);
+    if (!command) {
+      return { success: false, error: "Falta el parámetro 'command' o 'code'" };
+    }
+
+    try {
+      const sandbox = await clientGetOrCreateSandbox(context.conversationId);
+
+      // Detectar si es un comando largo (npm install, etc.) o background (npm run dev &)
+      const isLongRunning = /npm\s+install|npm\s+ci|yarn\s+install|pip\s+install|apt\s+install/i.test(command);
+      const isBackground = /&\s*$/.test(command.trim()) || /nohup/.test(command);
+
+      // Para comandos background: escribir a un script y ejecutar con nohup
+      if (isBackground) {
+        // Escribir el comando a un archivo .sh para evitar problemas de escaping
+        const scriptName = `_cmd_${Date.now()}.sh`;
+        const writeResult = await clientExec(sandbox.taskId, `cat > /tmp/${scriptName} << 'ENDOFSCRIPT'\n${command}\nENDOFSCRIPT\nchmod +x /tmp/${scriptName}`);
+        if (writeResult.exitCode !== 0) {
+          return { success: false, error: `Error escribiendo script: ${writeResult.stderr}` };
+        }
+
+        // Ejecutar en background con nohup, redirigir output a log
+        const logFile = `/tmp/output_${Date.now()}.log`;
+        const bgResult = await clientExec(
+          sandbox.taskId,
+          `nohup bash /tmp/${scriptName} > ${logFile} 2>&1 & echo "PID=$!"`,
+          { timeoutMs: 10000 }
+        );
+
+        const pid = bgResult.stdout.match(/PID=(\d+)/)?.[1] || "unknown";
+        return {
+          success: true,
+          result: `Comando iniciado en background. PID: ${pid}. Log: ${logFile}. Usa 'cat ${logFile}' para ver el output.`,
+          output: {
+            type: "text",
+            content: `Comando iniciado en background.\nPID: ${pid}\nLog file: ${logFile}\n\nPara ver el output, ejecuta: cat ${logFile}`,
+            title: "Background process started",
+          },
+        };
+      }
+
+      // Para comandos largos: usar timeout extendido
+      const timeoutMs = isLongRunning ? 180000 : 60000; // 3 min para npm install, 1 min normal
+
+      const result = await clientExec(sandbox.taskId, command, { timeoutMs });
+
+      if (result.exitCode !== 0) {
+        return {
+          success: false,
+          error: result.stderr || `Exit code: ${result.exitCode}`,
+          result: result.stdout,
+        };
+      }
+
+      return {
+        success: true,
+        result: result.stdout || "(sin output)",
+        output: {
+          type: "text",
+          content: result.stdout || "(sin output)",
+          title: "Terminal output",
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Error en bash execution: ${message}` };
+    }
   };
 
   // ==================== BROWSER HELPERS ====================
@@ -1008,8 +1074,10 @@ export class ToolRegistry {
 
   private fileWriteExecutor: ToolExecutor = async (params, context) => {
     const path = String(params.path || "");
-    const content = String(params.content || "");
+    // Aceptar tanto 'content' como 'code' (el LLM puede usar cualquiera)
+    const content = String(params.content || params.code || "");
     if (!path) return { success: false, error: "Parámetro 'path' requerido" };
+    if (!content) return { success: false, error: "Parámetro 'content' o 'code' requerido (contenido del archivo)" };
     try {
       const sandbox = await clientGetOrCreateSandbox(context.conversationId);
       await clientWriteFile(sandbox.taskId, path, content);
@@ -1017,6 +1085,11 @@ export class ToolRegistry {
         success: true,
         result: `Archivo escrito: ${path} (${content.length} caracteres)`,
         data: { path },
+        output: {
+          type: "text",
+          content: `✓ Archivo creado: ${path}\nTamaño: ${content.length} caracteres`,
+          title: "File Write",
+        },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
