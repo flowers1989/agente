@@ -1,4 +1,4 @@
-# ==================== IMAGEN BASE DEL SANDBOX (HARDENED) ====================
+# ==================== IMAGEN BASE DEL SANDBOX (HARDENED + PLAYWRIGHT) ====================
 # Contenedor aislado por tarea donde el agente ejecuta código real.
 # Inspirado en el sandbox de Manus IA, con capas adicionales de seguridad:
 #   - Usuario non-root (uid 1000)
@@ -6,6 +6,7 @@
 #   - /workspace efímero (tmpfs en runtime)
 #   - /home/agent escribible (para pip install --user)
 #   - Sin systemd, sin sudo, sin setuid binaries
+#   - Playwright + Chromium pre-instalado para navegación web automatizada
 
 FROM python:3.12-slim AS builder
 
@@ -31,7 +32,8 @@ RUN pip install --no-cache-dir --prefix=/opt/pylibs \
         pillow \
         sympy \
         httpx \
-        pyyaml
+        pyyaml \
+        playwright
 
 # ==================== Stage 2: runtime mínimal ====================
 FROM python:3.12-slim
@@ -45,6 +47,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # Solo runtime essentials. NO build-essential, NO gcc, NO vim.
 # ripgrep para buscar, jq para JSON, git para clonar, curl/wget para fetch.
+# + dependencias de Chromium para Playwright (libnss3, libatk, libgbm, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         git \
@@ -56,6 +59,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         less \
         procps \
         coreutils \
+        # ====== Dependencias de Chromium para Playwright ======
+        libnss3 \
+        libnspr4 \
+        libatk1.0-0 \
+        libatk-bridge2.0-0 \
+        libcups2 \
+        libdrm2 \
+        libxkbcommon0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxrandr2 \
+        libgbm1 \
+        libasound2 \
+        libatspi2.0-0 \
+        libxshmfence1 \
+        fonts-liberation \
+        fonts-noto-color-emoji \
+        # ====== Fin dependencias Chromium ======
     && rm -rf /var/lib/apt/lists/* \
     && apt-get purge -y --auto-remove
 
@@ -65,8 +87,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g npm@latest --silent
 
-# Copiar librerías Python pre-instaladas del builder
+# Copiar librerías Python pre-instaladas del builder (incluye playwright)
 COPY --from=builder /opt/pylibs /usr/local
+
+# Instalar Chromium para Playwright (se hace como root porque necesita /root/.cache/ms-playwright)
+# Pero moveremos el browser a /opt para que el usuario agent pueda accederlo
+RUN mkdir -p /opt/ms-playwright \
+    && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright python3 -m playwright install chromium --with-deps \
+    && chown -R 1000:1000 /opt/ms-playwright
 
 # Usuario non-root con uid fijo 1000 (sin sudo, sin password)
 RUN groupadd -g 1000 agent \
@@ -75,11 +103,14 @@ RUN groupadd -g 1000 agent \
 
 # Directorio de trabajo del agente (será tmpfs en runtime)
 WORKDIR /workspace
-RUN chown agent:agent /workspace /home/agent
+RUN chown agent:agent /workspace /home/agent /opt/ms-playwright
 
 # PATH incluye ~/.local/bin para pip install --user
+# PLAYWRIGHT_BROWSERS_PATH apunta al Chromium instalado en /opt
 ENV PATH="/home/agent/.local/bin:${PATH}" \
-    PYTHONPATH="/home/agent/.local/lib/python3.12/site-packages:${PYTHONPATH}"
+    PYTHONPATH="/home/agent/.local/lib/python3.12/site-packages:${PYTHONPATH}" \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 USER agent
 

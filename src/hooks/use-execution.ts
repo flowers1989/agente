@@ -14,6 +14,7 @@ import { sanitizeLLMOutput } from "@/lib/utils";
 import { exportReport, type ExportFormat } from "@/lib/export-report";
 import { detectDocumentFormat, type DocumentFormat } from "@/lib/services/document-generator";
 import { detectConnectorIntent, executeConnectorIntent, formatConnectorResult } from "@/lib/integrations/intent-detector";
+import { ensureSandboxStarted } from "@/lib/sandbox/sandbox-store";
 
 // ==================== HOOK DE EJECUCIÓN ====================
 // Este hook conecta el frontend con el orquestador de los 7 agentes.
@@ -577,6 +578,16 @@ export function useExecution() {
 
     // ========== EJECUTAR ORQUESTADOR EN CLIENTE (fallback, sin API key) ==========
     const orchestrator = getOrchestrator();
+
+    // ========== AUTO-CREAR SANDBOX EN BACKGROUND ==========
+    // Se crea el sandbox en paralelo a la ejecución del orchestrator para que
+    // cuando el agente necesite ejecutar código, el contenedor ya esté listo.
+    // No bloquea el flujo: si falla, el sandbox se creará on-demand al ejecutar código.
+    if (conversation?.id) {
+      ensureSandboxStarted(conversation.id).catch((err) => {
+        console.warn("[useExecution] Sandbox auto-start falló (se reintentará on-demand):", err);
+      });
+    }
 
     // previousMessages, contextPrompt y userObjective ya fueron calculados arriba.
     // Crear plan inicial vacío (se actualizará cuando el Planificador termine)

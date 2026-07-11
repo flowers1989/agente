@@ -31,7 +31,11 @@ import {
   ensureSandboxStarted,
   stopSandbox,
   runCodeInSandbox,
+  runCodeInSandboxStream,
+  runCommandInSandboxStream,
   refreshFilesInSandbox,
+  listFilesInPath,
+  readFileFromSandbox,
   openFileInSandbox,
   saveFileInSandbox,
   type Language,
@@ -289,6 +293,7 @@ function TerminalView({
   const [running, setRunning] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const clearTerminal = useSandboxStore((s) => s.clearTerminal);
   const addTerminalLine = useSandboxStore((s) => s.addTerminalLine);
 
@@ -298,14 +303,32 @@ function TerminalView({
     }
   }, [lines.length]);
 
+  // Limpia el AbortController al desmontar
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const handleSubmit = async () => {
     const code = input.trim();
     if (!code || running) return;
     setRunning(true);
     setInput("");
-    await runCodeInSandbox(code, lang, taskId);
+    // Streaming SSE: el output aparece en vivo en el terminal
+    abortRef.current = await runCodeInSandboxStream(code, lang, taskId, {
+      timeoutMs: 60000,
+    });
     setRunning(false);
     inputRef.current?.focus();
+  };
+
+  const handleCancel = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      addTerminalLine({ type: "system", text: "⏹ Ejecución cancelada por el usuario" });
+      setRunning(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -405,6 +428,15 @@ function TerminalView({
           >
             {running ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
           </button>
+          {running && (
+            <button
+              onClick={handleCancel}
+              className="size-8 rounded bg-destructive/20 text-destructive hover:bg-destructive/30 border border-destructive/40 flex items-center justify-center transition-colors shrink-0"
+              title="Cancelar ejecución"
+            >
+              <span className="text-xs font-bold">⏹</span>
+            </button>
+          )}
         </div>
         <div className="text-[9px] text-muted-foreground/60">
           Enter para ejecutar · Shift+Enter para nueva línea
@@ -414,22 +446,150 @@ function TerminalView({
   );
 }
 
+// ==================== EXPLORADOR DE ARCHIVOS TIPO VS CODE ====================
+// - Árbol de directorios expandible (clic en carpeta para abrir/cerrar)
+// - Breadcrumbs para navegación
+// - Iconos por tipo de archivo (color según extensión)
+// - Editor con números de línea y Ctrl+S
+
+interface TreeNode {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  children?: TreeNode[];
+  loaded?: boolean;
+  expanded?: boolean;
+}
+
+function getFileIcon(name: string): { icon: string; color: string } {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, { icon: string; color: string }> = {
+    ts: { icon: "TS", color: "text-blue-500" },
+    tsx: { icon: "TSX", color: "text-blue-500" },
+    js: { icon: "JS", color: "text-yellow-500" },
+    jsx: { icon: "JSX", color: "text-yellow-500" },
+    py: { icon: "PY", color: "text-emerald-500" },
+    json: { icon: "{}", color: "text-amber-500" },
+    md: { icon: "M↓", color: "text-sky-500" },
+    html: { icon: "<>", color: "text-orange-500" },
+    css: { icon: "#", color: "text-blue-400" },
+    sh: { icon: "$", color: "text-green-500" },
+    txt: { icon: "T", color: "text-muted-foreground" },
+    yml: { icon: "Y", color: "text-purple-500" },
+    yaml: { icon: "Y", color: "text-purple-500" },
+    csv: { icon: "C", color: "text-green-600" },
+    png: { icon: "🖼", color: "text-pink-500" },
+    jpg: { icon: "🖼", color: "text-pink-500" },
+    jpeg: { icon: "🖼", color: "text-pink-500" },
+    svg: { icon: "SVG", color: "text-pink-500" },
+    pdf: { icon: "PDF", color: "text-red-500" },
+  };
+  return map[ext] || { icon: "F", color: "text-muted-foreground" };
+}
+
 function FilesView({ taskId }: { taskId: string }) {
-  const files = useSandboxStore((s) => s.files);
-  const loadingFiles = useSandboxStore((s) => s.loadingFiles);
   const activeFile = useSandboxStore((s) => s.activeFile);
+  const setActiveFile = useSandboxStore((s) => s.setActiveFile);
   const [copied, setCopied] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [tree, setTree] = useState<TreeNode[]>([]);
+  const [loadingTree, setLoadingTree] = useState(false);
+  const [currentPath] = useState("/workspace");
 
-  // Auto-cargar al montar
-  useEffect(() => {
-    refreshFilesInSandbox();
+  // Cargar árbol raíz al montar
+  const loadDirectory = useCallback(async (dirPath: string) => {
+    setLoadingTree(true);
+    try {
+      const items = await listFilesInPath(dirPath);
+      return items.map((item) => ({
+        name: item.name,
+        path: dirPath === "/workspace" ? `/workspace/${item.name}` : `${dirPath}/${item.name}`,
+        isDirectory: item.isDirectory,
+        size: item.size,
+        loaded: !item.isDirectory,
+        expanded: false,
+      })) as TreeNode[];
+    } catch {
+      return [];
+    } finally {
+      setLoadingTree(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadDirectory("/workspace").then(setTree);
+  }, [loadDirectory]);
+
+  // Expandir/contraer un directorio
+  const toggleDir = useCallback(async (node: TreeNode, parentPath: string[]) => {
+    const updateTree = (nodes: TreeNode[], targetPath: string[], depth: number): TreeNode[] => {
+      if (depth >= targetPath.length) return nodes;
+      return nodes.map((n) => {
+        if (n.path === targetPath[depth]) {
+          if (depth === targetPath.length - 1) {
+            // Es el nodo objetivo
+            if (!n.loaded) {
+              // Cargar hijos async
+              loadDirectory(n.path).then((children) => {
+                setTree((prev) => updateTreeWithChildren(prev, n.path, children, true));
+              });
+              return { ...n, expanded: true, children: [] };
+            }
+            return { ...n, expanded: !n.expanded };
+          }
+          return { ...n, children: updateTree(n.children || [], targetPath, depth + 1) };
+        }
+        return n;
+      });
+    };
+    setTree((prev) => updateTree(prev, [...parentPath, node.path], parentPath.length));
+  }, [loadDirectory]);
+
+  const updateTreeWithChildren = (
+    nodes: TreeNode[],
+    targetPath: string,
+    children: TreeNode[],
+    expanded: boolean
+  ): TreeNode[] => {
+    return nodes.map((n) => {
+      if (n.path === targetPath) {
+        return { ...n, children, loaded: true, expanded };
+      }
+      if (n.children) {
+        return { ...n, children: updateTreeWithChildren(n.children, targetPath, children, expanded) };
+      }
+      return n;
+    });
+  };
+
+  // Abrir archivo
+  const handleOpenFile = useCallback(async (node: TreeNode) => {
+    if (node.isDirectory) return;
+    try {
+      const content = await readFileFromSandbox(node.path);
+      const ext = node.name.split(".").pop()?.toLowerCase() || "";
+      const langMap: Record<string, string> = {
+        ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+        py: "python", sh: "bash", bash: "bash", json: "json", md: "markdown",
+        txt: "text", html: "html", css: "css", yml: "yaml", yaml: "yaml",
+      };
+      setActiveFile({
+        name: node.name,
+        path: node.path,
+        content,
+        language: langMap[ext] || "text",
+      });
+      setEditMode(false);
+    } catch (err) {
+      toast.error("No se pudo leer el archivo");
+    }
+  }, [readFileFromSandbox, setActiveFile]);
 
   const handleRefresh = useCallback(() => {
-    refreshFilesInSandbox();
-  }, []);
+    loadDirectory(currentPath).then(setTree);
+  }, [loadDirectory, currentPath]);
 
   const handleCopy = () => {
     if (activeFile?.content) {
@@ -461,49 +621,105 @@ function FilesView({ taskId }: { taskId: string }) {
     else toast.error("Error al guardar");
   };
 
+  // Render recursivo del árbol
+  const renderTree = (nodes: TreeNode[], depth: number = 0, parentPath: string[] = []): React.ReactNode => {
+    // Ordenar: directorios primero, luego archivos alfabéticamente
+    const sorted = [...nodes].sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return sorted.map((node) => {
+      const fileIcon = getFileIcon(node.name);
+      const isActive = activeFile?.path === node.path;
+      return (
+        <div key={node.path}>
+          <button
+            onClick={() => node.isDirectory ? toggleDir(node, parentPath) : handleOpenFile(node)}
+            className={cn(
+              "w-full flex items-center gap-1 px-1.5 py-1 rounded text-xs text-left transition-all border border-transparent",
+              isActive
+                ? "bg-manus-primary/10 text-manus-primary border-manus-primary/30"
+                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            )}
+            style={{ paddingLeft: `${depth * 12 + 6}px` }}
+          >
+            {node.isDirectory ? (
+              <>
+                <ChevronRight
+                  className={cn("size-3 shrink-0 transition-transform", node.expanded && "rotate-90")}
+                />
+                <Folder className="size-3 shrink-0 text-amber-500/80" />
+              </>
+            ) : (
+              <>
+                <span className="w-3 shrink-0" />
+                <span className={cn("text-[9px] font-bold shrink-0 w-6 text-center", fileIcon.color)}>
+                  {fileIcon.icon}
+                </span>
+              </>
+            )}
+            <span className="truncate flex-1">{node.name}</span>
+            {!node.isDirectory && node.size > 0 && (
+              <span className="text-[9px] text-muted-foreground/60">{formatSize(node.size)}</span>
+            )}
+          </button>
+          {node.isDirectory && node.expanded && node.children && (
+            <div>
+              {node.children.length === 0 && node.loaded ? (
+                <div
+                  className="text-[10px] text-muted-foreground/50 italic px-1 py-0.5"
+                  style={{ paddingLeft: `${(depth + 1) * 12 + 24}px` }}
+                >
+                  (vacío)
+                </div>
+              ) : (
+                renderTree(node.children, depth + 1, [...parentPath, node.path])
+              )}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
+  // Breadcrumbs
+  const breadcrumbs = currentPath.split("/").filter(Boolean);
+
   return (
     <div className="h-full flex">
-      {/* Sidebar de archivos */}
-      <div className="w-44 border-r border-border flex flex-col shrink-0">
+      {/* Sidebar de archivos tipo VS Code */}
+      <div className="w-48 border-r border-border flex flex-col shrink-0">
         <div className="px-2 py-1.5 border-b border-border flex items-center justify-between">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">/workspace</span>
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">EXPLORER</span>
           <button
             onClick={handleRefresh}
-            disabled={loadingFiles}
+            disabled={loadingTree}
             className="size-5 rounded hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
             title="Refrescar"
           >
-            <RefreshCw className={cn("size-3", loadingFiles && "animate-spin")} />
+            <RefreshCw className={cn("size-3", loadingTree && "animate-spin")} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-1.5">
-          {files.length === 0 && !loadingFiles ? (
+        {/* Breadcrumbs */}
+        <div className="px-2 py-1 border-b border-border text-[10px] text-muted-foreground font-mono truncate">
+          {breadcrumbs.map((part, i) => (
+            <span key={i}>
+              {i > 0 && <span className="opacity-40">/</span>}
+              <span className={i === breadcrumbs.length - 1 ? "text-foreground" : ""}>{part}</span>
+            </span>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto p-1">
+          {tree.length === 0 && !loadingTree ? (
             <div className="text-[10px] text-muted-foreground italic px-1 py-2">
               Sin archivos. Crea alguno desde la terminal.
             </div>
+          ) : loadingTree && tree.length === 0 ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="size-3 animate-spin text-muted-foreground" />
+            </div>
           ) : (
-            files.map((file, i) => {
-              const Icon = file.isDirectory ? Folder : FileIcon;
-              const isActive = activeFile?.name === file.name;
-              return (
-                <button
-                  key={`${file.name}-${i}`}
-                  onClick={() => !file.isDirectory && openFileInSandbox(file.name)}
-                  className={cn(
-                    "w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-left transition-all border border-transparent",
-                    isActive
-                      ? "bg-manus-primary/10 text-manus-primary border-manus-primary/30"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  )}
-                >
-                  <Icon className="size-3 shrink-0" />
-                  <span className="truncate">{file.name}</span>
-                  {!file.isDirectory && file.size > 0 && (
-                    <span className="text-[9px] text-muted-foreground/60 ml-auto">{formatSize(file.size)}</span>
-                  )}
-                </button>
-              );
-            })
+            renderTree(tree)
           )}
         </div>
       </div>
@@ -522,7 +738,6 @@ function FilesView({ taskId }: { taskId: string }) {
                 <span className="text-[9px] text-muted-foreground/60 uppercase">{activeFile.language}</span>
               </div>
               <div className="flex items-center gap-0.5 shrink-0">
-                {/* Toggle editar */}
                 <button
                   onClick={() => setEditMode(!editMode)}
                   className={cn(
@@ -531,22 +746,20 @@ function FilesView({ taskId }: { taskId: string }) {
                       ? "bg-manus-primary/20 text-manus-primary"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
-                  title={editMode ? "Modo edición" : "Modo lectura"}
+                  title={editMode ? "Modo edición activo" : "Modo lectura"}
                 >
                   <Edit3 className="size-3" />
                 </button>
-                {/* Guardar */}
                 {editMode && (
                   <button
                     onClick={handleSave}
                     disabled={saving || !activeFile.dirty}
                     className="size-6 rounded hover:bg-manus-secondary/20 hover:text-manus-secondary flex items-center justify-center text-muted-foreground disabled:opacity-40 transition-colors"
-                    title="Guardar en sandbox"
+                    title="Guardar en sandbox (Ctrl+S)"
                   >
                     {saving ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
                   </button>
                 )}
-                {/* Copiar */}
                 <button
                   onClick={handleCopy}
                   className="size-6 rounded hover:bg-manus-primary/20 hover:text-manus-primary flex items-center justify-center text-muted-foreground transition-colors"
@@ -554,7 +767,6 @@ function FilesView({ taskId }: { taskId: string }) {
                 >
                   {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
                 </button>
-                {/* Descargar */}
                 <button
                   onClick={handleDownload}
                   className="size-6 rounded hover:bg-manus-secondary/20 hover:text-manus-secondary flex items-center justify-center text-muted-foreground transition-colors"

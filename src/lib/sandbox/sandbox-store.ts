@@ -123,6 +123,7 @@ import {
   clientListFiles,
   clientReadFile,
   clientWriteFile,
+  clientExecStream,
 } from "./sandbox-client";
 
 export async function ensureSandboxStarted(taskId: string): Promise<string | null> {
@@ -198,6 +199,109 @@ export async function runCodeInSandbox(
   }
 }
 
+// ==================== STREAMING SSE EN VIVO ====================
+// Versión con streaming del output: cada chunk de stdout/stderr aparece
+// inmediatamente en el terminal, sin esperar a que termine el comando.
+// Devuelve un AbortController para cancelar la ejecución.
+export async function runCodeInSandboxStream(
+  code: string,
+  language: Language,
+  taskId: string,
+  options?: { timeoutMs?: number; cwd?: string }
+): Promise<AbortController> {
+  const store = useSandboxStore.getState();
+  const sid = await ensureSandboxStarted(taskId);
+  if (!sid) {
+    store.addTerminalLine({ type: "error", text: "No se pudo iniciar el sandbox" });
+    const ac = new AbortController();
+    ac.abort();
+    return ac;
+  }
+
+  // Construir el comando según el lenguaje (igual que clientRunCode pero con streaming)
+  const langMap: Record<string, string> = {
+    python: "python3",
+    node: "node",
+    bash: "bash",
+  };
+  const runner = langMap[language] || "bash";
+
+  // Escribir el código a un archivo temporal y ejecutarlo
+  const ext = language === "python" ? "py" : language === "node" ? "js" : "sh";
+  const tmpFile = `/tmp/mexa_stream_${Date.now()}.${ext}`;
+  await clientWriteFile(sid, tmpFile, code);
+
+  const command = `${runner} ${tmpFile}`;
+  store.addTerminalLine({ type: "input", text: `$ ${command}` });
+  store.setActiveTab("terminal");
+
+  const controller = await clientExecStream(sid, command, {
+    onStdout: (text) => {
+      store.addTerminalLine({ type: "output", text });
+    },
+    onStderr: (text) => {
+      store.addTerminalLine({ type: "error", text });
+    },
+    onDone: (info) => {
+      if (info.timedOut) {
+        store.addTerminalLine({ type: "error", text: `⏱ Timeout tras ${Math.round(info.durationMs / 1000)}s` });
+      }
+      store.addTerminalLine({
+        type: "system",
+        text: `✓ Exit code: ${info.exitCode} · ${Math.round(info.durationMs)}ms`,
+      });
+    },
+    onError: (message) => {
+      store.addTerminalLine({ type: "error", text: `Error: ${message}` });
+    },
+  }, options);
+
+  return controller;
+}
+
+// Ejecuta un comando shell arbitrario con streaming SSE.
+// Útil para `ls -la`, `npm install`, `pip install`, etc.
+export async function runCommandInSandboxStream(
+  command: string,
+  taskId: string,
+  options?: { timeoutMs?: number; cwd?: string }
+): Promise<AbortController> {
+  const store = useSandboxStore.getState();
+  const sid = await ensureSandboxStarted(taskId);
+  if (!sid) {
+    store.addTerminalLine({ type: "error", text: "No se pudo iniciar el sandbox" });
+    const ac = new AbortController();
+    ac.abort();
+    return ac;
+  }
+
+  store.addTerminalLine({ type: "input", text: `$ ${command}` });
+  store.setActiveTab("terminal");
+
+  const controller = await clientExecStream(sid, command, {
+    onStdout: (text) => {
+      store.addTerminalLine({ type: "output", text });
+    },
+    onStderr: (text) => {
+      store.addTerminalLine({ type: "error", text });
+    },
+    onDone: (info) => {
+      if (info.timedOut) {
+        store.addTerminalLine({ type: "error", text: `⏱ Timeout tras ${Math.round(info.durationMs / 1000)}s` });
+      }
+      store.addTerminalLine({
+        type: "system",
+        text: `✓ Exit code: ${info.exitCode} · ${Math.round(info.durationMs)}ms`,
+      });
+    },
+    onError: (message) => {
+      store.addTerminalLine({ type: "error", text: `Error: ${message}` });
+    },
+  }, options);
+
+  return controller;
+}
+
 export async function refreshFilesInSandbox(): Promise<void> {
   const store = useSandboxStore.getState();
   if (!store.taskId) return;
@@ -210,6 +314,29 @@ export async function refreshFilesInSandbox(): Promise<void> {
   } finally {
     store.setLoadingFiles(false);
   }
+}
+
+// Lista archivos de un directorio arbitrario del sandbox (no solo /workspace).
+// Útil para navegación tipo VS Code con árbol de directorios.
+export async function listFilesInPath(
+  dirPath: string
+): Promise<Array<{ name: string; isDirectory: boolean; size: number }>> {
+  const store = useSandboxStore.getState();
+  if (!store.taskId) return [];
+  try {
+    return await clientListFiles(store.taskId, dirPath);
+  } catch {
+    return [];
+  }
+}
+
+// Lee un archivo de una ruta arbitraria del sandbox.
+export async function readFileFromSandbox(
+  fullPath: string
+): Promise<string> {
+  const store = useSandboxStore.getState();
+  if (!store.taskId) return "";
+  return clientReadFile(store.taskId, fullPath);
 }
 
 export async function openFileInSandbox(fileName: string): Promise<void> {
