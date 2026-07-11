@@ -5,6 +5,7 @@ import { ChatPanel } from "@/components/agente/chat-panel";
 import { SandboxPanel } from "@/components/agente/sandbox-panel";
 import { useExecution } from "@/hooks/use-execution";
 import { useBrowserAutoStart } from "@/hooks/use-browser-auto-start";
+import { useSandboxAutoStart } from "@/hooks/use-sandbox-auto-start";
 import { useExecutionStore } from "@/lib/store-execution";
 import { useTaskStore } from "@/lib/store-task";
 import { useEffect } from "react";
@@ -14,6 +15,8 @@ export function AppPage() {
   useExecution();
   // Inicia el navegador automáticamente para tenerlo siempre listo
   useBrowserAutoStart();
+  // Inicia el sandbox Docker automáticamente al cargar la app
+  useSandboxAutoStart();
 
   const currentConversationId = useTaskStore((s) => s.currentConversationId);
   const resetWorkspace = useExecutionStore((s) => s.resetWorkspace);

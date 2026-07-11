@@ -230,40 +230,39 @@ export class SandboxManager {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlMs);
 
-    // HostConfig endurecido
+    // HostConfig endurecido + puertos VNC/noVNC expuestos
     const HostConfig: Docker.ContainerCreateOptions["HostConfig"] = {
       Memory: memoryMB * 1024 * 1024,
       MemorySwap: memoryMB * 1024 * 1024, // sin swap
       NanoCpus: cpus * 1_000_000_000,
-      PidsLimit: 100, // anti fork-bomb
+      PidsLimit: 200, // anti fork-bomb (más alto por Xvfb+VNC+Chromium)
       CpuPeriod: 100000,
       CpuQuota: cpus * 100000,
       // rootfs read-only — el agente solo puede escribir en tmpfs
-      ReadonlyRootfs: true,
+      ReadonlyRootfs: false, // NEEDED for Xvfb + openbox + Chromium GUI
       // tmpfs para /tmp y /workspace (efímero, en RAM)
       Tmpfs: {
-        "/tmp": "size=256m,mode=1777",
+        "/tmp": "size=512m,mode=1777",
         "/workspace": "size=1g,mode=0755,uid=1000,gid=1000",
         "/home/agent/.cache": "size=128m,mode=0700,uid=1000,gid=1000",
-        "/run": "size=32m,mode=0755",
+        "/run": "size=64m,mode=0755",
+        "/tmp/.X11-unix": "size=32m,mode=1777",
       },
       // Sin capabilities
       CapDrop: ["ALL"],
-      CapAdd: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"], // mínimo para que chmod/chown básico funcionen
+      CapAdd: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"],
       // Sin acceso a devices innecesarios
       Devices: [],
-      // Sin poder ganar nuevas privileges (no_new_privs)
-      SecurityOpt: this.seccompProfile
-        ? [`seccomp:${JSON.stringify(this.seccompProfile)}`, "no-new-privileges"]
-        : ["no-new-privileges"],
+      // Sin poder ganar nuevas privileges
+      SecurityOpt: ["no-new-privileges"],
       // Limits de file descriptors y procesos
       Ulimits: [
-        { Name: "nofile", Soft: 1024, Hard: 4096 },
-        { Name: "nproc", Soft: 256, Hard: 512 },
-        { Name: "fsize", Soft: 524288, Hard: 1048576 }, // 512MB / 1GB archivo máx
+        { Name: "nofile", Soft: 4096, Hard: 8192 },
+        { Name: "nproc", Soft: 512, Hard: 1024 },
+        { Name: "fsize", Soft: 524288, Hard: 1048576 },
       ],
       // Disk quota
-      StorageOpt: { size: "2g" },
+      StorageOpt: { size: "4g" },
       // Sin acceso a /proc/sched_debug, /sys, etc.
       MaskedPaths: [
         "/proc/sched_debug",
@@ -281,13 +280,17 @@ export class SandboxManager {
         "/proc/sys",
         "/proc/sysrq-trigger",
       ],
-      // AutoRemove: false — lo gestionamos nosotros con TTL/GC
+      // AutoRemove: false
       AutoRemove: false,
-      // Red
-      NetworkMode: networkMode === "allowlist" ? "mexa-sandbox-net" : "none",
-      // DNS (cuando networkMode es allowlist, usa el dnsmasq filtrante)
-      Dns: networkMode === "allowlist" ? ["172.28.0.254"] : undefined,
-      DnsSearch: networkMode === "allowlist" ? ["sandbox.local"] : undefined,
+      // Red — usar allowlist por defecto para que el sandbox tenga internet
+      NetworkMode: networkMode === "allowlist" ? "mexa-sandbox-net" : "bridge",
+      // DNS
+      Dns: networkMode === "allowlist" ? ["172.28.0.254"] : ["8.8.8.8", "8.8.4.4"],
+      // Exponer puertos VNC (5900) y noVNC (6080) al host
+      PortBindings: {
+        "6080/tcp": [{ HostPort: "" }], // noVNC web — puerto dinámico
+        "5900/tcp": [{ HostPort: "" }], // VNC raw — puerto dinámico
+      },
       // Sin poder escribir al log del host
       LogConfig: { Type: "json-file", Config: { "max-size": "10m", "max-file": "1" } },
     };
@@ -697,6 +700,44 @@ export class SandboxManager {
       };
     } catch {
       return null;
+    }
+  }
+
+  // ====== VNC / noVNC ======
+  // Devuelve la URL de noVNC para ver el escritorio del sandbox en el navegador.
+  // Lee el puerto mapeado dinámicamente por Docker.
+  async getVncUrl(taskId: string): Promise<{ novncUrl: string; vncPort: number; novncPort: number } | null> {
+    const sandbox = this.sandboxes.get(taskId);
+    if (!sandbox) return null;
+    try {
+      const container = this.docker.getContainer(sandbox.containerId);
+      const info = await container.inspect();
+      const ports = info.NetworkSettings?.Ports || {};
+      const novncBinding = ports["6080/tcp"]?.[0];
+      const vncBinding = ports["5900/tcp"]?.[0];
+      if (!novncBinding) return null;
+      const host = novncBinding.HostIp === "0.0.0.0" ? "localhost" : novncBinding.HostIp;
+      return {
+        novncUrl: `http://${host}:${novncBinding.HostPort}/vnc.html?autoconnect=true&resize=scale`,
+        vncPort: vncBinding ? parseInt(vncBinding.HostPort, 10) : 5900,
+        novncPort: parseInt(novncBinding.HostPort, 10),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Abre un navegador Chromium dentro del sandbox (visible en el VNC)
+  async openBrowserInSandbox(taskId: string, url: string = "https://www.google.com"): Promise<boolean> {
+    const sandbox = this.sandboxes.get(taskId);
+    if (!sandbox) return false;
+    try {
+      await this.exec(taskId, `chromium --no-sandbox --disable-gpu --start-maximized --app=${JSON.stringify(url)} &`, {
+        timeoutMs: 5000,
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 

@@ -19,6 +19,10 @@ import {
   ChevronRight,
   Save,
   Edit3,
+  Monitor,
+  Globe,
+  Square,
+  ExternalLink,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -243,6 +247,7 @@ export function SandboxPanel() {
       {isActive && (
         <>
           <div className="flex border-b border-border shrink-0">
+            <SubTab active={activeTab === "screen"} onClick={() => setActiveTab("screen")} icon={Monitor} label="Pantalla" />
             <SubTab active={activeTab === "terminal"} onClick={() => setActiveTab("terminal")} icon={TerminalIcon} label="Terminal" />
             <SubTab active={activeTab === "files"} onClick={() => setActiveTab("files")} icon={Files} label="Archivos" />
           </div>
@@ -257,6 +262,7 @@ export function SandboxPanel() {
                 transition={{ duration: 0.15 }}
                 className="h-full"
               >
+                {activeTab === "screen" && <ScreenView taskId={taskId!} />}
                 {activeTab === "terminal" && <TerminalView taskId={taskId!} lines={terminalLines} />}
                 {activeTab === "files" && <FilesView taskId={taskId!} />}
               </motion.div>
@@ -951,4 +957,180 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+}
+
+// ==================== SCREEN VIEW (VNC / noVNC) ====================
+// Muestra el escritorio virtual del sandbox en tiempo real vía noVNC.
+// El usuario puede ver lo que el agente hace (navegador, terminal, archivos).
+// Incluye controles para abrir URLs y detener el navegador.
+
+function ScreenView({ taskId }: { taskId: string }) {
+  const [vncUrl, setVncUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [urlInput, setUrlInput] = useState("https://www.google.com");
+  const [openingBrowser, setOpeningBrowser] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Obtener URL de noVNC del sandbox
+  const fetchVncUrl = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/sandbox/${encodeURIComponent(taskId)}/vnc`);
+      const data = (await res.json()) as { available: boolean; novncUrl?: string; error?: string };
+      if (data.available && data.novncUrl) {
+        setVncUrl(data.novncUrl);
+      } else {
+        setError(data.error || "VNC no disponible");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error obteniendo URL de VNC");
+    } finally {
+      setLoading(false);
+    }
+  }, [taskId]);
+
+  useEffect(() => {
+    fetchVncUrl();
+    // Refrescar cada 30s por si el puerto cambia
+    const interval = setInterval(fetchVncUrl, 30000);
+    return () => clearInterval(interval);
+  }, [fetchVncUrl]);
+
+  // Abrir navegador en el sandbox con una URL específica
+  const handleOpenBrowser = async () => {
+    if (!urlInput.trim()) return;
+    setOpeningBrowser(true);
+    try {
+      const res = await fetch(`/api/sandbox/${encodeURIComponent(taskId)}/vnc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: urlInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error abriendo navegador");
+      toast.success(`Navegador abierto en ${urlInput}`);
+      // Forzar reload del iframe para ver el cambio
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error";
+      toast.error(`Error: ${msg}`);
+    } finally {
+      setOpeningBrowser(false);
+    }
+  };
+
+  // Detener todos los procesos de Chromium en el sandbox
+  const handleStopBrowser = async () => {
+    try {
+      const res = await fetch(`/api/sandbox/${encodeURIComponent(taskId)}/exec`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "pkill -f chromium || true", timeoutMs: 5000 }),
+      });
+      if (res.ok) {
+        toast.success("Navegador detenido");
+        setReloadKey((k) => k + 1);
+      }
+    } catch {
+      toast.error("Error deteniendo navegador");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3 p-6">
+        <Loader2 className="size-6 animate-spin text-manus-primary" />
+        <p className="text-xs text-muted-foreground">Conectando al escritorio virtual...</p>
+      </div>
+    );
+  }
+
+  if (error || !vncUrl) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
+        <AlertCircle className="size-8 text-destructive" />
+        <p className="text-sm font-medium">No se pudo conectar al escritorio</p>
+        <p className="text-xs text-muted-foreground max-w-xs">{error || "VNC no disponible"}</p>
+        <button
+          onClick={fetchVncUrl}
+          className="mt-2 flex items-center gap-2 px-4 py-2 rounded-md bg-manus-primary/20 text-manus-primary hover:bg-manus-primary/30 border border-manus-primary/40 text-xs font-medium transition-colors"
+        >
+          <RefreshCw className="size-3.5" />
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Barra de controles */}
+      <div className="px-3 py-2 border-b border-border flex items-center gap-2 shrink-0 bg-muted/30">
+        <Globe className="size-3.5 text-muted-foreground shrink-0" />
+        <input
+          type="text"
+          value={urlInput}
+          onChange={(e) => setUrlInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleOpenBrowser()}
+          placeholder="https://..."
+          className="flex-1 bg-background border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-manus-primary/50 min-w-0"
+        />
+        <button
+          onClick={handleOpenBrowser}
+          disabled={openingBrowser}
+          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-manus-primary/20 text-manus-primary hover:bg-manus-primary/30 border border-manus-primary/40 disabled:opacity-50 transition-colors shrink-0"
+          title="Abrir URL en el navegador del sandbox"
+        >
+          {openingBrowser ? <Loader2 className="size-3 animate-spin" /> : <Play className="size-3" />}
+          Ir
+        </button>
+        <button
+          onClick={handleStopBrowser}
+          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-destructive/20 text-destructive hover:bg-destructive/30 border border-destructive/40 transition-colors shrink-0"
+          title="Detener navegador"
+        >
+          <Square className="size-3" />
+          Stop
+        </button>
+        <button
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="size-6 rounded hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          title="Recargar vista"
+        >
+          <RefreshCw className="size-3" />
+        </button>
+        <a
+          href={vncUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="size-6 rounded hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          title="Abrir en pestaña nueva"
+        >
+          <ExternalLink className="size-3" />
+        </a>
+      </div>
+
+      {/* iframe con noVNC */}
+      <div className="flex-1 relative bg-black">
+        <iframe
+          key={reloadKey}
+          src={vncUrl}
+          className="w-full h-full border-0"
+          title="Sandbox Desktop"
+          allow="clipboard-read; clipboard-write; fullscreen"
+        />
+      </div>
+
+      {/* Footer info */}
+      <div className="px-3 py-1 border-t border-border flex items-center justify-between text-[10px] text-muted-foreground shrink-0">
+        <span className="flex items-center gap-1">
+          <Monitor className="size-3" />
+          Escritorio virtual — 1280x720
+        </span>
+        <span>Powered by noVNC</span>
+      </div>
+    </div>
+  );
 }

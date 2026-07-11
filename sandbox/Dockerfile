@@ -1,12 +1,13 @@
-# ==================== IMAGEN BASE DEL SANDBOX (HARDENED + PLAYWRIGHT) ====================
+# ==================== IMAGEN BASE DEL SANDBOX (MANUS IA STYLE) ====================
 # Contenedor aislado por tarea donde el agente ejecuta código real.
-# Inspirado en el sandbox de Manus IA, con capas adicionales de seguridad:
+# 
+# CARACTERÍSTICAS:
+#   - Escritorio virtual (Xvfb + openbox) visible vía VNC/noVNC
+#   - Navegador Chromium REAL (no headless) para que el usuario lo vea
+#   - Python 3.12 + Node.js 20 + Playwright
+#   - Streaming de pantalla en tiempo real vía websockify + noVNC
 #   - Usuario non-root (uid 1000)
-#   - Solo Python + Node + herramientas mínimas (sin gcc después de build)
 #   - /workspace efímero (tmpfs en runtime)
-#   - /home/agent escribible (para pip install --user)
-#   - Sin systemd, sin sudo, sin setuid binaries
-#   - Playwright + Chromium pre-instalado para navegación web automatizada
 
 FROM python:3.12-slim AS builder
 
@@ -14,14 +15,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Stage 1: instalar dependencias en /opt para copiarlas limpias después
+# Stage 1: instalar dependencias Python en /opt para copiarlas limpias después
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Python deps (pre-instaladas para evitar downloads en runtime)
 RUN pip install --no-cache-dir --prefix=/opt/pylibs \
         requests \
         beautifulsoup4 \
@@ -35,7 +35,7 @@ RUN pip install --no-cache-dir --prefix=/opt/pylibs \
         pyyaml \
         playwright
 
-# ==================== Stage 2: runtime mínimal ====================
+# ==================== Stage 2: runtime con escritorio virtual ====================
 FROM python:3.12-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -43,11 +43,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     NODE_ENV=production \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DISPLAY=:0 \
+    SCREEN_WIDTH=1280 \
+    SCREEN_HEIGHT=720 \
+    SCREEN_DEPTH=24
 
-# Solo runtime essentials. NO build-essential, NO gcc, NO vim.
-# ripgrep para buscar, jq para JSON, git para clonar, curl/wget para fetch.
-# + dependencias de Chromium para Playwright (libnss3, libatk, libgbm, etc.)
+# Runtime essentials + X11 + VNC + noVNC + Chromium GUI
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         git \
@@ -59,7 +61,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         less \
         procps \
         coreutils \
-        # ====== Dependencias de Chromium para Playwright ======
+        # ====== X11 / escritorio virtual ======
+        xvfb \
+        x11vnc \
+        openbox \
+        xterm \
+        xdotool \
+        xclip \
+        # ====== noVNC / websockify ======
+        python3-websockify \
+        novnc \
+        # ====== Chromium GUI (no headless) ======
+        chromium \
+        chromium-driver \
+        # ====== Dependencias de Chromium ======
         libnss3 \
         libnspr4 \
         libatk1.0-0 \
@@ -77,11 +92,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxshmfence1 \
         fonts-liberation \
         fonts-noto-color-emoji \
-        # ====== Fin dependencias Chromium ======
+        fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get purge -y --auto-remove
 
-# Node.js 20 LTS runtime solo (sin npm global, sin build tools)
+# Node.js 20 LTS runtime
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
@@ -90,29 +105,32 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Copiar librerías Python pre-instaladas del builder (incluye playwright)
 COPY --from=builder /opt/pylibs /usr/local
 
-# Instalar Chromium para Playwright (se hace como root porque necesita /root/.cache/ms-playwright)
-# Pero moveremos el browser a /opt para que el usuario agent pueda accederlo
+# Instalar Chromium para Playwright (separado del chromium del sistema)
 RUN mkdir -p /opt/ms-playwright \
-    && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright python3 -m playwright install chromium --with-deps \
+    && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright python3 -m playwright install chromium \
     && chown -R 1000:1000 /opt/ms-playwright
 
-# Usuario non-root con uid fijo 1000 (sin sudo, sin password)
+# Usuario non-root con uid fijo 1000
 RUN groupadd -g 1000 agent \
-    && useradd --create-home --shell /bin/bash --uid 1000 --gid 1000 --no-user-group agent \
-    && rm -rf /etc/sudoers /etc/sudoers.d /usr/bin/sudo /bin/su
+    && useradd --create-home --shell /bin/bash --uid 1000 --gid 1000 --no-user-group agent
 
-# Directorio de trabajo del agente (será tmpfs en runtime)
+# Script de inicio del escritorio virtual + VNC + noVNC
+COPY --chown=agent:agent sandbox/entrypoint.sh /home/agent/entrypoint.sh
+RUN chmod +x /home/agent/entrypoint.sh
+
+# Directorio de trabajo
 WORKDIR /workspace
 RUN chown agent:agent /workspace /home/agent /opt/ms-playwright
 
-# PATH incluye ~/.local/bin para pip install --user
-# PLAYWRIGHT_BROWSERS_PATH apunta al Chromium instalado en /opt
+# PATH y variables de entorno
 ENV PATH="/home/agent/.local/bin:${PATH}" \
     PYTHONPATH="/home/agent/.local/lib/python3.12/site-packages:${PYTHONPATH}" \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    CHROME_BIN=/usr/bin/chromium \
+    CHROMIUM_BIN=/usr/bin/chromium
 
 USER agent
 
-# Sin CMD: el SandboxManager inicia con `sleep infinity` via HostConfig
-CMD ["sleep", "infinity"]
+# El entrypoint arranca Xvfb + openbox + x11vnc + websockify + sleep
+ENTRYPOINT ["/home/agent/entrypoint.sh"]

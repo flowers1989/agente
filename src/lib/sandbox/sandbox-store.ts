@@ -63,7 +63,7 @@ interface SandboxState {
   loadingFiles: boolean;
 
   // Sub-tab activo
-  activeTab: "terminal" | "files";
+  activeTab: "terminal" | "files" | "screen";
 
   // Actions
   setStatus: (status: SandboxStatus) => void;
@@ -75,7 +75,7 @@ interface SandboxState {
   updateActiveFileContent: (content: string) => void;
   markActiveFileSaved: () => void;
   setLoadingFiles: (loading: boolean) => void;
-  setActiveTab: (tab: "terminal" | "files") => void;
+  setActiveTab: (tab: "terminal" | "files" | "screen") => void;
   reset: () => void;
 }
 
