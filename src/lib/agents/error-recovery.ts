@@ -1,1 +1,381 @@
-/**\n * Error Recovery System\n * Sistema inteligente de recuperación de errores con auto-corrección\n */\n\nimport { getAdapter } from \"./opencode-adapter\";\nimport { toolRegistry } from \"./tool-registry\";\nimport { useMemoryStore } from \"../memory/memory-store\";\n\nexport interface ErrorContext {\n  errorType: \"timeout\" | \"invalid-params\" | \"tool-not-found\" | \"execution-failed\" | \"validation-failed\" | \"unknown\";\n  errorMessage: string;\n  toolName: string;\n  parameters: Record<string, unknown>;\n  timestamp: string;\n  attemptNumber: number;\n}\n\nexport interface RecoveryStrategy {\n  name: string;\n  description: string;\n  priority: number; // 1-10, mayor es mejor\n  execute: (context: ErrorContext) => Promise<{ success: boolean; result?: unknown; newParams?: Record<string, unknown> }>;\n}\n\nexport interface RecoveryResult {\n  recovered: boolean;\n  strategy: string;\n  newParams?: Record<string, unknown>;\n  result?: unknown;\n  error?: string;\n}\n\n/**\n * Sistema de recuperación de errores\n */\nexport class ErrorRecovery {\n  private strategies: Map<string, RecoveryStrategy> = new Map();\n  private memory = useMemoryStore.getState();\n\n  constructor() {\n    this.registerDefaultStrategies();\n  }\n\n  /**\n   * Registrar estrategias de recuperación por defecto\n   */\n  private registerDefaultStrategies(): void {\n    // Estrategia 1: Retry con parámetros idénticos\n    this.register(\"retry-same\", {\n      name: \"Reintentar con parámetros idénticos\",\n      description: \"Reintenta la herramienta con los mismos parámetros\",\n      priority: 3,\n      execute: async (context) => {\n        if (context.attemptNumber > 2) {\n          return { success: false };\n        }\n\n        try {\n          const result = await toolRegistry.execute(context.toolName, context.parameters, {\n            conversationId: \"recovery\",\n            userId: \"system\",\n          });\n          return { success: result.success, result: result.data || result.result };\n        } catch (error) {\n          return { success: false };\n        }\n      },\n    });\n\n    // Estrategia 2: Simplificar parámetros\n    this.register(\"simplify-params\", {\n      name: \"Simplificar parámetros\",\n      description: \"Reintenta con parámetros simplificados\",\n      priority: 5,\n      execute: async (context) => {\n        const simplified = this.simplifyParameters(context.parameters);\n\n        try {\n          const result = await toolRegistry.execute(context.toolName, simplified, {\n            conversationId: \"recovery\",\n            userId: \"system\",\n          });\n          return {\n            success: result.success,\n            result: result.data || result.result,\n            newParams: simplified,\n          };\n        } catch (error) {\n          return { success: false };\n        }\n      },\n    });\n\n    // Estrategia 3: Usar herramienta alternativa\n    this.register(\"alternative-tool\", {\n      name: \"Usar herramienta alternativa\",\n      description: \"Intenta con una herramienta alternativa\",\n      priority: 7,\n      execute: async (context) => {\n        const alternative = this.findAlternativeTool(context.toolName);\n        if (!alternative) return { success: false };\n\n        try {\n          const result = await toolRegistry.execute(alternative, context.parameters, {\n            conversationId: \"recovery\",\n            userId: \"system\",\n          });\n          return {\n            success: result.success,\n            result: result.data || result.result,\n            newParams: context.parameters,\n          };\n        } catch (error) {\n          return { success: false };\n        }\n      },\n    });\n\n    // Estrategia 4: Generar parámetros con LLM\n    this.register(\"llm-fix-params\", {\n      name: \"Generar parámetros corregidos con LLM\",\n      description: \"Usa LLM para generar parámetros corregidos\",\n      priority: 8,\n      execute: async (context) => {\n        const fixedParams = await this.generateFixedParameters(context);\n        if (!fixedParams) return { success: false };\n\n        try {\n          const result = await toolRegistry.execute(context.toolName, fixedParams, {\n            conversationId: \"recovery\",\n            userId: \"system\",\n          });\n          return {\n            success: result.success,\n            result: result.data || result.result,\n            newParams: fixedParams,\n          };\n        } catch (error) {\n          return { success: false };\n        }\n      },\n    });\n\n    // Estrategia 5: Descomponer en tareas más pequeñas\n    this.register(\"decompose\", {\n      name: \"Descomponer en tareas más pequeñas\",\n      description: \"Divide la tarea en pasos más pequeños\",\n      priority: 6,\n      execute: async (context) => {\n        const decomposed = await this.decomposeTask(context);\n        if (!decomposed || decomposed.length === 0) return { success: false };\n\n        const results: unknown[] = [];\n        for (const task of decomposed) {\n          try {\n            const result = await toolRegistry.execute(context.toolName, task, {\n              conversationId: \"recovery\",\n              userId: \"system\",\n            });\n            if (result.success) {\n              results.push(result.data || result.result);\n            }\n          } catch (error) {\n            // Continuar con siguiente tarea\n          }\n        }\n\n        return {\n          success: results.length > 0,\n          result: results,\n          newParams: decomposed[0],\n        };\n      },\n    });\n\n    // Estrategia 6: Cambiar modelo de LLM\n    this.register(\"change-model\", {\n      name: \"Cambiar modelo de LLM\",\n      description: \"Intenta con un modelo de LLM diferente\",\n      priority: 4,\n      execute: async (context) => {\n        // Esta estrategia requiere soporte especial del ejecutor\n        return { success: false };\n      },\n    });\n  }\n\n  /**\n   * Registrar una estrategia personalizada\n   */\n  register(name: string, strategy: RecoveryStrategy): void {\n    this.strategies.set(name, strategy);\n  }\n\n  /**\n   * Recuperar de un error automáticamente\n   */\n  async recover(context: ErrorContext): Promise<RecoveryResult> {\n    console.log(`[ErrorRecovery] Intentando recuperación de: ${context.errorMessage}`);\n\n    // Obtener estrategias ordenadas por prioridad\n    const strategies = Array.from(this.strategies.values()).sort((a, b) => b.priority - a.priority);\n\n    for (const strategy of strategies) {\n      try {\n        console.log(`[ErrorRecovery] Intentando estrategia: ${strategy.name}`);\n        const result = await strategy.execute(context);\n\n        if (result.success) {\n          console.log(`[ErrorRecovery] ✓ Recuperación exitosa con: ${strategy.name}`);\n          this.saveRecoveryToMemory(context, strategy.name, result);\n\n          return {\n            recovered: true,\n            strategy: strategy.name,\n            newParams: result.newParams,\n            result: result.result,\n          };\n        }\n      } catch (error) {\n        console.error(`[ErrorRecovery] Error en estrategia ${strategy.name}:`, error);\n      }\n    }\n\n    console.log(`[ErrorRecovery] ✗ No se pudo recuperar del error`);\n    return {\n      recovered: false,\n      strategy: \"none\",\n      error: context.errorMessage,\n    };\n  }\n\n  /**\n   * Simplificar parámetros\n   */\n  private simplifyParameters(params: Record<string, unknown>): Record<string, unknown> {\n    const simplified: Record<string, unknown> = {};\n\n    for (const [key, value] of Object.entries(params)) {\n      if (typeof value === \"string\" && value.length > 100) {\n        simplified[key] = value.substring(0, 100);\n      } else if (typeof value === \"object\" && value !== null) {\n        simplified[key] = JSON.stringify(value).substring(0, 200);\n      } else {\n        simplified[key] = value;\n      }\n    }\n\n    return simplified;\n  }\n\n  /**\n   * Encontrar herramienta alternativa\n   */\n  private findAlternativeTool(toolName: string): string | null {\n    const alternatives: Record<string, string> = {\n      \"Web Search\": \"Web Extraction\",\n      \"Web Extraction\": \"Browser Navigation\",\n      \"Code Generation\": \"File Write\",\n      \"Python Execution\": \"Node.js Execution\",\n      \"Testing\": \"Code Generation\",\n      \"Data Analysis\": \"Visualization\",\n    };\n\n    return alternatives[toolName] || null;\n  }\n\n  /**\n   * Generar parámetros corregidos con LLM\n   */\n  private async generateFixedParameters(\n    context: ErrorContext\n  ): Promise<Record<string, unknown> | null> {\n    const prompt = `La herramienta \"${context.toolName}\" falló con este error:\n\n\"${context.errorMessage}\"\n\nParámetros originales:\n${JSON.stringify(context.parameters, null, 2)}\n\n¿Cuáles deberían ser los parámetros corregidos? Responde ÚNICAMENTE con JSON válido.`;\n\n    try {\n      const adapter = getAdapter();\n      const response = await adapter.chat([{ role: \"user\", content: prompt }], {\n        model: \"deepseek-v4-flash\",\n        maxTokens: 512,\n      });\n\n      const jsonMatch = response.content.match(/\\{[\\s\\S]*\\}/);\n      if (jsonMatch) {\n        return JSON.parse(jsonMatch[0]);\n      }\n    } catch (error) {\n      console.error(\"[ErrorRecovery] Error generando parámetros corregidos:\", error);\n    }\n\n    return null;\n  }\n\n  /**\n   * Descomponer una tarea en pasos más pequeños\n   */\n  private async decomposeTask(context: ErrorContext): Promise<Record<string, unknown>[] | null> {\n    const prompt = `La herramienta \"${context.toolName}\" falló con este error:\n\n\"${context.errorMessage}\"\n\nParámetros:\n${JSON.stringify(context.parameters, null, 2)}\n\n¿Cómo podrías descomponer esta tarea en pasos más pequeños? Responde con un array JSON de parámetros para cada paso.`;\n\n    try {\n      const adapter = getAdapter();\n      const response = await adapter.chat([{ role: \"user\", content: prompt }], {\n        model: \"deepseek-v4-flash\",\n        maxTokens: 1024,\n      });\n\n      const jsonMatch = response.content.match(/\\[[\\s\\S]*\\]/);\n      if (jsonMatch) {\n        return JSON.parse(jsonMatch[0]);\n      }\n    } catch (error) {\n      console.error(\"[ErrorRecovery] Error descomponiendo tarea:\", error);\n    }\n\n    return null;\n  }\n\n  /**\n   * Guardar recuperación en memoria\n   */\n  private saveRecoveryToMemory(\n    context: ErrorContext,\n    strategyName: string,\n    result: { success: boolean; result?: unknown; newParams?: Record<string, unknown> }\n  ): void {\n    this.memory.store(\n      \"semantic\",\n      `recovery:${context.toolName}:${Date.now()}`,\n      JSON.stringify({\n        context,\n        strategyName,\n        result,\n        timestamp: new Date().toISOString(),\n      }),\n      {\n        tags: [\"recovery\", context.toolName, strategyName],\n        confidence: 0.9,\n      }\n    );\n  }\n\n  /**\n   * Obtener estadísticas de recuperación\n   */\n  getRecoveryStats(): { totalAttempts: number; successRate: number; mostUsedStrategy: string } {\n    // Implementar obtención de estadísticas desde memoria\n    return {\n      totalAttempts: 0,\n      successRate: 0,\n      mostUsedStrategy: \"unknown\",\n    };\n  }\n}\n\n/**\n * Instancia global del sistema de recuperación\n */\nlet errorRecoveryInstance: ErrorRecovery | null = null;\n\nexport function getErrorRecovery(): ErrorRecovery {\n  if (!errorRecoveryInstance) {\n    errorRecoveryInstance = new ErrorRecovery();\n  }\n  return errorRecoveryInstance;\n}\n
+/**
+ * Error Recovery System
+ * Sistema inteligente de recuperación de errores con auto-corrección
+ */
+
+import { getAdapter } from "./opencode-adapter";
+import { toolRegistry } from "./tool-registry";
+import { useMemoryStore } from "../memory/memory-store";
+
+export interface ErrorContext {
+  errorType: "timeout" | "invalid-params" | "tool-not-found" | "execution-failed" | "validation-failed" | "unknown";
+  errorMessage: string;
+  toolName: string;
+  parameters: Record<string, unknown>;
+  timestamp: string;
+  attemptNumber: number;
+}
+
+export interface RecoveryStrategy {
+  name: string;
+  description: string;
+  priority: number; // 1-10, mayor es mejor
+  execute: (context: ErrorContext) => Promise<{ success: boolean; result?: unknown; newParams?: Record<string, unknown> }>;
+}
+
+export interface RecoveryResult {
+  recovered: boolean;
+  strategy: string;
+  newParams?: Record<string, unknown>;
+  result?: unknown;
+  error?: string;
+}
+
+/**
+ * Sistema de recuperación de errores
+ */
+export class ErrorRecovery {
+  private strategies: Map<string, RecoveryStrategy> = new Map();
+  private memory = useMemoryStore.getState();
+
+  constructor() {
+    this.registerDefaultStrategies();
+  }
+
+  /**
+   * Registrar estrategias de recuperación por defecto
+   */
+  private registerDefaultStrategies(): void {
+    // Estrategia 1: Retry con parámetros idénticos
+    this.register("retry-same", {
+      name: "Reintentar con parámetros idénticos",
+      description: "Reintenta la herramienta con los mismos parámetros",
+      priority: 3,
+      execute: async (context) => {
+        if (context.attemptNumber > 2) {
+          return { success: false };
+        }
+
+        try {
+          const result = await toolRegistry.execute(context.toolName, context.parameters, {
+            conversationId: "recovery",
+            userId: "system",
+          });
+          return { success: result.success, result: result.data || result.result };
+        } catch (error) {
+          return { success: false };
+        }
+      },
+    });
+
+    // Estrategia 2: Simplificar parámetros
+    this.register("simplify-params", {
+      name: "Simplificar parámetros",
+      description: "Reintenta con parámetros simplificados",
+      priority: 5,
+      execute: async (context) => {
+        const simplified = this.simplifyParameters(context.parameters);
+
+        try {
+          const result = await toolRegistry.execute(context.toolName, simplified, {
+            conversationId: "recovery",
+            userId: "system",
+          });
+          return {
+            success: result.success,
+            result: result.data || result.result,
+            newParams: simplified,
+          };
+        } catch (error) {
+          return { success: false };
+        }
+      },
+    });
+
+    // Estrategia 3: Usar herramienta alternativa
+    this.register("alternative-tool", {
+      name: "Usar herramienta alternativa",
+      description: "Intenta con una herramienta alternativa",
+      priority: 7,
+      execute: async (context) => {
+        const alternative = this.findAlternativeTool(context.toolName);
+        if (!alternative) return { success: false };
+
+        try {
+          const result = await toolRegistry.execute(alternative, context.parameters, {
+            conversationId: "recovery",
+            userId: "system",
+          });
+          return {
+            success: result.success,
+            result: result.data || result.result,
+            newParams: context.parameters,
+          };
+        } catch (error) {
+          return { success: false };
+        }
+      },
+    });
+
+    // Estrategia 4: Generar parámetros con LLM
+    this.register("llm-fix-params", {
+      name: "Generar parámetros corregidos con LLM",
+      description: "Usa LLM para generar parámetros corregidos",
+      priority: 8,
+      execute: async (context) => {
+        const fixedParams = await this.generateFixedParameters(context);
+        if (!fixedParams) return { success: false };
+
+        try {
+          const result = await toolRegistry.execute(context.toolName, fixedParams, {
+            conversationId: "recovery",
+            userId: "system",
+          });
+          return {
+            success: result.success,
+            result: result.data || result.result,
+            newParams: fixedParams,
+          };
+        } catch (error) {
+          return { success: false };
+        }
+      },
+    });
+
+    // Estrategia 5: Descomponer en tareas más pequeñas
+    this.register("decompose", {
+      name: "Descomponer en tareas más pequeñas",
+      description: "Divide la tarea en pasos más pequeños",
+      priority: 6,
+      execute: async (context) => {
+        const decomposed = await this.decomposeTask(context);
+        if (!decomposed || decomposed.length === 0) return { success: false };
+
+        const results: unknown[] = [];
+        for (const task of decomposed) {
+          try {
+            const result = await toolRegistry.execute(context.toolName, task, {
+              conversationId: "recovery",
+              userId: "system",
+            });
+            if (result.success) {
+              results.push(result.data || result.result);
+            }
+          } catch (error) {
+            // Continuar con siguiente tarea
+          }
+        }
+
+        return {
+          success: results.length > 0,
+          result: results,
+          newParams: decomposed[0],
+        };
+      },
+    });
+
+    // Estrategia 6: Cambiar modelo de LLM
+    this.register("change-model", {
+      name: "Cambiar modelo de LLM",
+      description: "Intenta con un modelo de LLM diferente",
+      priority: 4,
+      execute: async (context) => {
+        // Esta estrategia requiere soporte especial del ejecutor
+        return { success: false };
+      },
+    });
+  }
+
+  /**
+   * Registrar una estrategia personalizada
+   */
+  register(name: string, strategy: RecoveryStrategy): void {
+    this.strategies.set(name, strategy);
+  }
+
+  /**
+   * Recuperar de un error automáticamente
+   */
+  async recover(context: ErrorContext): Promise<RecoveryResult> {
+    console.log(`[ErrorRecovery] Intentando recuperación de: ${context.errorMessage}`);
+
+    // Obtener estrategias ordenadas por prioridad
+    const strategies = Array.from(this.strategies.values()).sort((a, b) => b.priority - a.priority);
+
+    for (const strategy of strategies) {
+      try {
+        console.log(`[ErrorRecovery] Intentando estrategia: ${strategy.name}`);
+        const result = await strategy.execute(context);
+
+        if (result.success) {
+          console.log(`[ErrorRecovery] ✓ Recuperación exitosa con: ${strategy.name}`);
+          this.saveRecoveryToMemory(context, strategy.name, result);
+
+          return {
+            recovered: true,
+            strategy: strategy.name,
+            newParams: result.newParams,
+            result: result.result,
+          };
+        }
+      } catch (error) {
+        console.error(`[ErrorRecovery] Error en estrategia ${strategy.name}:`, error);
+      }
+    }
+
+    console.log(`[ErrorRecovery] ✗ No se pudo recuperar del error`);
+    return {
+      recovered: false,
+      strategy: "none",
+      error: context.errorMessage,
+    };
+  }
+
+  /**
+   * Simplificar parámetros
+   */
+  private simplifyParameters(params: Record<string, unknown>): Record<string, unknown> {
+    const simplified: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(params)) {
+      if (typeof value === "string" && value.length > 100) {
+        simplified[key] = value.substring(0, 100);
+      } else if (typeof value === "object" && value !== null) {
+        simplified[key] = JSON.stringify(value).substring(0, 200);
+      } else {
+        simplified[key] = value;
+      }
+    }
+
+    return simplified;
+  }
+
+  /**
+   * Encontrar herramienta alternativa
+   */
+  private findAlternativeTool(toolName: string): string | null {
+    const alternatives: Record<string, string> = {
+      "Web Search": "Web Extraction",
+      "Web Extraction": "Browser Navigation",
+      "Code Generation": "File Write",
+      "Python Execution": "Node.js Execution",
+      "Testing": "Code Generation",
+      "Data Analysis": "Visualization",
+    };
+
+    return alternatives[toolName] || null;
+  }
+
+  /**
+   * Generar parámetros corregidos con LLM
+   */
+  private async generateFixedParameters(
+    context: ErrorContext
+  ): Promise<Record<string, unknown> | null> {
+    const prompt = `La herramienta "${context.toolName}" falló con este error:
+
+"${context.errorMessage}"
+
+Parámetros originales:
+${JSON.stringify(context.parameters, null, 2)}
+
+¿Cuáles deberían ser los parámetros corregidos? Responde ÚNICAMENTE con JSON válido.`;
+
+    try {
+      const adapter = getAdapter();
+      const response = await adapter.chat([{ role: "user", content: prompt }], {
+        model: "deepseek-v4-flash",
+        maxTokens: 512,
+      });
+
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+    } catch (error) {
+      console.error("[ErrorRecovery] Error generando parámetros corregidos:", error);
+    }
+
+    return null;
+  }
+
+  /**
+   * Descomponer una tarea en pasos más pequeños
+   */
+  private async decomposeTask(context: ErrorContext): Promise<Record<string, unknown>[] | null> {
+    const prompt = `La herramienta "${context.toolName}" falló con este error:
+
+"${context.errorMessage}"
+
+Parámetros:
+${JSON.stringify(context.parameters, null, 2)}
+
+¿Cómo podrías descomponer esta tarea en pasos más pequeños? Responde con un array JSON de parámetros para cada paso.`;
+
+    try {
+      const adapter = getAdapter();
+      const response = await adapter.chat([{ role: "user", content: prompt }], {
+        model: "deepseek-v4-flash",
+        maxTokens: 1024,
+      });
+
+      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+    } catch (error) {
+      console.error("[ErrorRecovery] Error descomponiendo tarea:", error);
+    }
+
+    return null;
+  }
+
+  /**
+   * Guardar recuperación en memoria
+   */
+  private saveRecoveryToMemory(
+    context: ErrorContext,
+    strategyName: string,
+    result: { success: boolean; result?: unknown; newParams?: Record<string, unknown> }
+  ): void {
+    this.memory.store(
+      "semantic",
+      `recovery:${context.toolName}:${Date.now()}`,
+      JSON.stringify({
+        context,
+        strategyName,
+        result,
+        timestamp: new Date().toISOString(),
+      }),
+      {
+        tags: ["recovery", context.toolName, strategyName],
+        confidence: 0.9,
+      }
+    );
+  }
+
+  /**
+   * Obtener estadísticas de recuperación
+   */
+  getRecoveryStats(): { totalAttempts: number; successRate: number; mostUsedStrategy: string } {
+    // Implementar obtención de estadísticas desde memoria
+    return {
+      totalAttempts: 0,
+      successRate: 0,
+      mostUsedStrategy: "unknown",
+    };
+  }
+}
+
+/**
+ * Instancia global del sistema de recuperación
+ */
+let errorRecoveryInstance: ErrorRecovery | null = null;
+
+export function getErrorRecovery(): ErrorRecovery {
+  if (!errorRecoveryInstance) {
+    errorRecoveryInstance = new ErrorRecovery();
+  }
+  return errorRecoveryInstance;
+}
+

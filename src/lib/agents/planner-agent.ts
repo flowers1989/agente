@@ -217,14 +217,36 @@ Reglas:
       "Document Generation: generar documentos Markdown",
       "File Read / File Write: leer/escribir archivos virtuales",
       "Data Analysis: analizar contenido web recopilado",
+      "Bash/Shell Execution: ejecutar comandos en sandbox Docker (npm install, npm run dev, etc.)",
+      "Python Execution: ejecutar código Python en sandbox",
+      "Node.js Execution: ejecutar código Node.js en sandbox",
+      "Web Preview: servir HTML en un servidor local y devolver URL de preview",
     ];
 
     const categoryTools: Record<string, string[]> = {
-      research: ["Web Search", "Web Extraction", "Data Analysis", "Document Generation"],
-      content: ["Web Search", "Web Extraction", "Document Generation", "Data Analysis"],
-      code: ["Code Generation", "File Write", "Testing", "Bash/Shell Execution"],
-      data: ["Web Search", "Web Extraction", "Data Analysis", "Visualization"],
-      automation: ["HTTP Client", "Chat/Messaging", "Email"],
+      research: ["Web Search", "Web Extraction", "Data Analysis", "Document Generation", "Bash/Shell Execution"],
+      content: ["Web Search", "Web Extraction", "Document Generation", "Data Analysis", "File Write", "Web Preview"],
+      code: [
+        "Code Generation",
+        "File Write",
+        "File Read",
+        "Testing",
+        "Bash/Shell Execution",
+        "Python Execution",
+        "Node.js Execution",
+        "Web Preview",
+      ],
+      data: [
+        "Web Search",
+        "Web Extraction",
+        "Data Analysis",
+        "Visualization",
+        "Python Execution",
+        "File Write",
+        "Web Preview",
+        "Bash/Shell Execution",
+      ],
+      automation: ["HTTP Client", "Chat/Messaging", "Email", "Bash/Shell Execution", "Code Generation"],
       general: baseTools,
     };
 

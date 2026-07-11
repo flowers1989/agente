@@ -2,7 +2,7 @@
 
 import { ConversationSidebar, SidebarReopenButton } from "@/components/agente/conversation-sidebar";
 import { ChatPanel } from "@/components/agente/chat-panel";
-import { WorkspacePanel } from "@/components/agente/workspace-panel";
+import { SandboxPanel } from "@/components/agente/sandbox-panel";
 import { useExecution } from "@/hooks/use-execution";
 import { useBrowserAutoStart } from "@/hooks/use-browser-auto-start";
 import { useExecutionStore } from "@/lib/store-execution";
@@ -32,7 +32,7 @@ export function AppPage() {
           <SidebarReopenButton />
           <ChatPanel />
         </div>
-        <WorkspacePanel />
+        <SandboxPanel />
       </div>
     </div>
   );

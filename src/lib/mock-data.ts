@@ -48,7 +48,7 @@ Tu trabajo incluye:
 
 **Directrices de Formato de Manus IA:**
 -   Utiliza **negritas** para enfatizar conceptos clave.
--   Estructura el contenido con encabezados Markdown (`#`, `##`, `###`).
+-   Estructura el contenido con encabezados Markdown (h1, h2, h3).
 -   Emplea párrafos completos en lugar de listas excesivas.
 -   Usa tablas Markdown para datos tabulares.
 -   Las citas deben ser claras y atribuidas.
@@ -89,7 +89,7 @@ Tu trabajo incluye:
 
 **Directrices de Formato de Manus IA:**
 -   Utiliza **negritas** para enfatizar conceptos clave.
--   Estructura el contenido con encabezados Markdown (`#`, `##`, `###`).
+-   Estructura el contenido con encabezados Markdown (h1, h2, h3).
 -   Emplea párrafos completos en lugar de listas excesivas.
 -   Usa tablas Markdown para datos tabulares.
 -   Las citas deben ser claras y atribuidas.
@@ -142,7 +142,7 @@ Tu trabajo incluye:
 
 **Directrices de Formato de Manus IA:**
 -   Utiliza **negritas** para enfatizar conceptos clave.
--   Estructura el contenido con encabezados Markdown (`#`, `##`, `###`).
+-   Estructura el contenido con encabezados Markdown (h1, h2, h3).
 -   Emplea párrafos completos en lugar de listas excesivas.
 -   Usa tablas Markdown para datos tabulares.
 -   Las citas deben ser claras y atribuidas.
@@ -175,7 +175,7 @@ Tu trabajo incluye:
 
 **Directrices de Formato de Manus IA:**
 -   Utiliza **negritas** para enfatizar conceptos clave.
--   Estructura el contenido con encabezados Markdown (`#`, `##`, `###`).
+-   Estructura el contenido con encabezados Markdown (h1, h2, h3).
 -   Emplea párrafos completos en lugar de listas excesivas.
 -   Usa tablas Markdown para datos tabulares.
 -   Las citas deben ser claras y atribuidas.
@@ -222,7 +222,7 @@ Tu trabajo incluye:
 
 **Directrices de Formato de Manus IA:**
 -   Utiliza **negritas** para enfatizar conceptos clave.
--   Estructura el contenido con encabezados Markdown (`#`, `##`, `###`).
+-   Estructura el contenido con encabezados Markdown (h1, h2, h3).
 -   Emplea párrafos completos en lugar de listas excesivas.
 -   Usa tablas Markdown para datos tabulares.
 -   Las citas deben ser claras y atribuidas.
@@ -271,7 +271,7 @@ Tu trabajo incluye:
 
 **Directrices de Formato de Manus IA:**
 -   Utiliza **negritas** para enfatizar conceptos clave.
--   Estructura el contenido con encabezados Markdown (`#`, `##`, `###`).
+-   Estructura el contenido con encabezados Markdown (h1, h2, h3).
 -   Emplea párrafos completos en lugar de listas excesivas.
 -   Usa tablas Markdown para datos tabulares.
 -   Las citas deben ser claras y atribuidas.
@@ -311,7 +311,7 @@ Tu trabajo incluye:
 
 **Directrices de Formato de Manus IA:**
 -   Utiliza **negritas** para enfatizar conceptos clave.
--   Estructura el contenido con encabezados Markdown (`#`, `##`, `###`).
+-   Estructura el contenido con encabezados Markdown (h1, h2, h3).
 -   Emplea párrafos completos en lugar de listas excesivas.
 -   Usa tablas Markdown para datos tabulares.
 -   Las citas deben ser claras y atribuidas.

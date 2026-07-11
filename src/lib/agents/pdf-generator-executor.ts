@@ -259,4 +259,38 @@ print("PDF generado exitosamente")
   /**
    * Limpiar archivos PDF antiguos
    */
-  cleanupOldFiles(maxAgeHours: number = 24): void {\n    try {\n      const fs = require("fs");\n      const now = Date.now();\n      const maxAge = maxAgeHours * 60 * 60 * 1000;\n\n      const files = fs.readdirSync(this.outputDir);\n      for (const file of files) {\n        const filePath = join(this.outputDir, file);\n        const stats = fs.statSync(filePath);\n        const fileAge = now - stats.mtimeMs;\n\n        if (fileAge > maxAge) {\n          fs.unlinkSync(filePath);\n          console.log(`[PDFGenerator] Archivo antiguo eliminado: ${file}`);\n        }\n      }\n    } catch (error) {\n      console.error("[PDFGenerator] Error limpiando archivos:", error);\n    }\n  }\n}\n\n/**\n * Instancia global del generador de PDF\n */\nlet pdfGeneratorInstance: PDFGeneratorExecutor | null = null;\n\nexport function getPDFGenerator(): PDFGeneratorExecutor {\n  if (!pdfGeneratorInstance) {\n    pdfGeneratorInstance = new PDFGeneratorExecutor();\n  }\n  return pdfGeneratorInstance;\n}\n
+  cleanupOldFiles(maxAgeHours: number = 24): void {
+    try {
+      const fs = require("fs");
+      const now = Date.now();
+      const maxAge = maxAgeHours * 60 * 60 * 1000;
+
+      const files = fs.readdirSync(this.outputDir);
+      for (const file of files) {
+        const filePath = join(this.outputDir, file);
+        const stats = fs.statSync(filePath);
+        const fileAge = now - stats.mtimeMs;
+
+        if (fileAge > maxAge) {
+          fs.unlinkSync(filePath);
+          console.log(`[PDFGenerator] Archivo antiguo eliminado: ${file}`);
+        }
+      }
+    } catch (error) {
+      console.error("[PDFGenerator] Error limpiando archivos:", error);
+    }
+  }
+}
+
+/**
+ * Instancia global del generador de PDF
+ */
+let pdfGeneratorInstance: PDFGeneratorExecutor | null = null;
+
+export function getPDFGenerator(): PDFGeneratorExecutor {
+  if (!pdfGeneratorInstance) {
+    pdfGeneratorInstance = new PDFGeneratorExecutor();
+  }
+  return pdfGeneratorInstance;
+}
+

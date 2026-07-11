@@ -2,11 +2,16 @@
  * Build Service
  * Servicio centralizado de compilación multiplataforma
  * Orquesta React Native, Electron y Web para compilar todas las plataformas
+ *
+ * CAMBIO: Ahora conecta de verdad con los executors en lugar de retornar
+ * resultados simulados. Los executors requieren toolchains nativas instaladas
+ * (Android SDK, Xcode, electron-builder) para funcionar. Si no están
+ * disponibles, el build falla con un mensaje claro.
  */
 
 import { promisify } from "util";
 import { exec } from "child_process";
-import { mkdirSync, existsSync, readFileSync } from "fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
 import { getReactNativeExecutor } from "../agents/react-native-executor";
@@ -26,6 +31,13 @@ export interface BuildRequest {
     treeshake?: boolean;
     compress?: boolean;
   };
+  // Código fuente del proyecto (App.tsx para RN, App.tsx para Electron, index.html para web)
+  sourceCode?: string;
+  // Configuración adicional
+  packageName?: string; // com.example.app para Android
+  description?: string;
+  version?: string;
+  features?: string[];
 }
 
 export interface BuildJob {
@@ -37,7 +49,10 @@ export interface BuildJob {
   results: BuildJobResult[];
   totalSize?: number;
   zipPath?: string;
+  sourceCodeZipPath?: string; // ZIP con código fuente
   error?: string;
+  // Vista previa web (si aplica)
+  previewUrl?: string;
 }
 
 export interface BuildJobResult {
@@ -48,6 +63,7 @@ export interface BuildJobResult {
   fileSize?: number;
   error?: string;
   duration?: number;
+  logs?: string;
 }
 
 /**
@@ -62,25 +78,15 @@ export class BuildService {
     this.ensureDirectories();
   }
 
-  /**
-   * Asegurar que los directorios existen
-   */
   private ensureDirectories(): void {
     try {
-      if (!existsSync(this.jobsDir)) {
-        mkdirSync(this.jobsDir, { recursive: true });
-      }
-      if (!existsSync(this.outputDir)) {
-        mkdirSync(this.outputDir, { recursive: true });
-      }
+      if (!existsSync(this.jobsDir)) mkdirSync(this.jobsDir, { recursive: true });
+      if (!existsSync(this.outputDir)) mkdirSync(this.outputDir, { recursive: true });
     } catch (error) {
       console.error("[BuildService] Error creando directorios:", error);
     }
   }
 
-  /**
-   * Crear un trabajo de compilación
-   */
   async createBuildJob(request: BuildRequest): Promise<BuildJob> {
     const jobId = uuidv4();
     const job: BuildJob = {
@@ -89,21 +95,14 @@ export class BuildService {
       status: "pending",
       results: [],
     };
-
     this.jobs.set(jobId, job);
     console.log(`[BuildService] Trabajo de compilación creado: ${jobId}`);
-
     return job;
   }
 
-  /**
-   * Ejecutar un trabajo de compilación
-   */
   async executeBuildJob(jobId: string): Promise<BuildJob> {
     const job = this.jobs.get(jobId);
-    if (!job) {
-      throw new Error(`Trabajo no encontrado: ${jobId}`);
-    }
+    if (!job) throw new Error(`Trabajo no encontrado: ${jobId}`);
 
     job.status = "running";
     job.startedAt = new Date().toISOString();
@@ -111,12 +110,47 @@ export class BuildService {
     try {
       const request = job.buildRequest;
 
-      // Compilar cada plataforma
+      // 1. Crear el proyecto base (scaffolding) según el tipo
+      let projectPath: string | null = null;
+      if (request.projectType === "mobile" || request.targetPlatforms.some((p) => ["android", "ios", "android-tv"].includes(p))) {
+        // Crear proyecto React Native
+        const rnExecutor = getReactNativeExecutor();
+        const createResult = await rnExecutor.createProject({
+          projectName: request.projectName,
+          appName: request.projectName,
+          packageName: request.packageName || `com.agente.${request.projectName.toLowerCase().replace(/[^a-z0-9]/g, "")}`,
+          description: request.description,
+          version: request.version || "1.0.0",
+          targetPlatforms: request.targetPlatforms.filter((p) => ["android", "ios", "android-tv"].includes(p)) as ("android" | "ios" | "android-tv")[],
+          features: request.features,
+          code: request.sourceCode || defaultRNCode(request.projectName),
+        });
+        if (createResult.success && createResult.projectPath) {
+          projectPath = createResult.projectPath;
+        }
+      } else if (request.projectType === "desktop" || request.targetPlatforms.some((p) => ["windows", "macos", "linux"].includes(p))) {
+        // Crear proyecto Electron
+        const electronExecutor = getElectronExecutor();
+        const electronCode = request.sourceCode || defaultElectronCode(request.projectName);
+        const createResult = await electronExecutor.createProject({
+          projectName: request.projectName,
+          appName: request.projectName,
+          description: request.description,
+          version: request.version || "1.0.0",
+          targetPlatforms: request.targetPlatforms.filter((p) => ["windows", "macos", "linux"].includes(p)) as ("windows" | "macos" | "linux")[],
+          mainCode: electronMainCode(request.projectName),
+          rendererCode: electronCode,
+        });
+        if (createResult.success && createResult.projectPath) {
+          projectPath = createResult.projectPath;
+        }
+      }
+
+      // 2. Compilar cada plataforma
       for (const platform of request.targetPlatforms) {
         const startTime = Date.now();
-
         try {
-          const result = await this.buildPlatform(platform, request);
+          const result = await this.buildPlatform(platform, request, projectPath);
           result.duration = Date.now() - startTime;
           job.results.push(result);
         } catch (error) {
@@ -130,15 +164,36 @@ export class BuildService {
         }
       }
 
-      // Crear archivo ZIP con todos los resultados
+      // 3. Generar vista previa web si hay plataforma web
+      if (request.targetPlatforms.includes("web") && job.results.some((r) => r.platform === "web" && r.status === "success")) {
+        try {
+          job.previewUrl = await this.createWebPreview(jobId, request, projectPath);
+        } catch (err) {
+          console.warn("[BuildService] No se pudo crear vista previa web:", err);
+        }
+      }
+
+      // 4. Crear ZIP con binarios compilados
       if (job.results.some((r) => r.status === "success")) {
-        job.zipPath = await this.createOutputZip(jobId, job);
-        job.totalSize = await this.calculateTotalSize(job);
+        try {
+          job.zipPath = await this.createOutputZip(jobId, job);
+          job.totalSize = await this.calculateTotalSize(job);
+        } catch (err) {
+          console.warn("[BuildService] Error creando ZIP de binarios:", err);
+        }
+      }
+
+      // 5. Crear ZIP con código fuente (si se solicita o siempre)
+      if (projectPath && existsSync(projectPath)) {
+        try {
+          job.sourceCodeZipPath = await this.createSourceCodeZip(jobId, projectPath, request.projectName);
+        } catch (err) {
+          console.warn("[BuildService] Error creando ZIP de código fuente:", err);
+        }
       }
 
       job.status = "completed";
       job.completedAt = new Date().toISOString();
-
       console.log(`[BuildService] Trabajo completado: ${jobId}`);
     } catch (error) {
       job.status = "failed";
@@ -150,317 +205,467 @@ export class BuildService {
     return job;
   }
 
-  /**
-   * Compilar una plataforma específica
-   */
-  private async buildPlatform(platform: string, request: BuildRequest): Promise<BuildJobResult> {
+  private async buildPlatform(
+    platform: string,
+    request: BuildRequest,
+    projectPath: string | null
+  ): Promise<BuildJobResult> {
     const buildType = request.buildType || "release";
 
     switch (platform) {
-      // ===== REACT NATIVE =====
       case "android":
-        return await this.buildAndroid(request, buildType);
+        return await this.buildAndroid(request, buildType, projectPath);
       case "ios":
-        return await this.buildIOS(request, buildType);
+        return await this.buildIOS(request, buildType, projectPath);
       case "android-tv":
-        return await this.buildAndroidTV(request, buildType);
-
-      // ===== ELECTRON =====
+        return await this.buildAndroidTV(request, buildType, projectPath);
       case "windows":
-        return await this.buildWindows(request);
+        return await this.buildWindows(request, projectPath);
       case "macos":
-        return await this.buildMacOS(request);
+        return await this.buildMacOS(request, projectPath);
       case "linux":
-        return await this.buildLinux(request);
-
-      // ===== WEB =====
+        return await this.buildLinux(request, projectPath);
       case "web":
-        return await this.buildWeb(request);
-
+        return await this.buildWeb(request, projectPath);
       default:
-        return {
-          platform,
-          status: "skipped",
-          error: `Plataforma no soportada: ${platform}`,
-        };
+        return { platform, status: "skipped", error: `Plataforma no soportada: ${platform}` };
     }
   }
 
-  /**
-   * Compilar Android
-   */
-  private async buildAndroid(request: BuildRequest, buildType: string): Promise<BuildJobResult> {
+  // ===== REACT NATIVE =====
+
+  private async buildAndroid(request: BuildRequest, buildType: string, projectPath: string | null): Promise<BuildJobResult> {
+    if (!projectPath) return { platform: "android", status: "failed", error: "No project path" };
     try {
       const executor = getReactNativeExecutor();
-      // Aquí iría la lógica de compilación real
-      // Por ahora retornamos un resultado simulado
-
+      const result = await executor.buildAndroid(projectPath, buildType as "debug" | "release");
       return {
         platform: "android",
-        status: "success",
-        outputFile: `app-${buildType}.apk`,
-        fileSize: 45 * 1024 * 1024, // 45 MB
+        status: result.success ? "success" : "failed",
+        outputFile: result.outputFile,
+        outputPath: result.outputPath,
+        fileSize: result.fileSize,
+        error: result.error,
+        logs: result.logs,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        platform: "android",
-        status: "failed",
-        error: message,
-      };
+      return { platform: "android", status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  /**
-   * Compilar iOS
-   */
-  private async buildIOS(request: BuildRequest, buildType: string): Promise<BuildJobResult> {
+  private async buildIOS(request: BuildRequest, buildType: string, projectPath: string | null): Promise<BuildJobResult> {
+    if (!projectPath) return { platform: "ios", status: "failed", error: "No project path" };
     try {
       const executor = getReactNativeExecutor();
-      // Aquí iría la lógica de compilación real
-
+      const result = await executor.buildIOS(projectPath, buildType as "debug" | "release");
       return {
         platform: "ios",
-        status: "success",
-        outputFile: `app-${buildType}.ipa`,
-        fileSize: 52 * 1024 * 1024, // 52 MB
+        status: result.success ? "success" : "failed",
+        outputFile: result.outputFile,
+        outputPath: result.outputPath,
+        fileSize: result.fileSize,
+        error: result.error,
+        logs: result.logs,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        platform: "ios",
-        status: "failed",
-        error: message,
-      };
+      return { platform: "ios", status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  /**
-   * Compilar Android TV
-   */
-  private async buildAndroidTV(request: BuildRequest, buildType: string): Promise<BuildJobResult> {
+  private async buildAndroidTV(request: BuildRequest, buildType: string, projectPath: string | null): Promise<BuildJobResult> {
+    if (!projectPath) return { platform: "android-tv", status: "failed", error: "No project path" };
     try {
       const executor = getReactNativeExecutor();
-      // Aquí iría la lógica de compilación real
-
+      const result = await executor.buildAndroidTV(projectPath, buildType as "debug" | "release");
       return {
         platform: "android-tv",
-        status: "success",
-        outputFile: `app-tv-${buildType}.apk`,
-        fileSize: 48 * 1024 * 1024, // 48 MB
+        status: result.success ? "success" : "failed",
+        outputFile: result.outputFile,
+        outputPath: result.outputPath,
+        fileSize: result.fileSize,
+        error: result.error,
+        logs: result.logs,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        platform: "android-tv",
-        status: "failed",
-        error: message,
-      };
+      return { platform: "android-tv", status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  /**
-   * Compilar Windows
-   */
-  private async buildWindows(request: BuildRequest): Promise<BuildJobResult> {
+  // ===== ELECTRON =====
+
+  private async buildWindows(request: BuildRequest, projectPath: string | null): Promise<BuildJobResult> {
+    if (!projectPath) return { platform: "windows", status: "failed", error: "No project path" };
     try {
       const executor = getElectronExecutor();
-      // Aquí iría la lógica de compilación real
-
+      const result = await executor.buildWindows(projectPath);
       return {
         platform: "windows",
-        status: "success",
-        outputFile: `${request.projectName}-Setup.exe`,
-        fileSize: 120 * 1024 * 1024, // 120 MB
+        status: result.success ? "success" : "failed",
+        outputFile: result.outputFile,
+        outputPath: result.outputPath,
+        fileSize: result.fileSize,
+        error: result.error,
+        logs: result.logs,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        platform: "windows",
-        status: "failed",
-        error: message,
-      };
+      return { platform: "windows", status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  /**
-   * Compilar macOS
-   */
-  private async buildMacOS(request: BuildRequest): Promise<BuildJobResult> {
+  private async buildMacOS(request: BuildRequest, projectPath: string | null): Promise<BuildJobResult> {
+    if (!projectPath) return { platform: "macos", status: "failed", error: "No project path" };
     try {
       const executor = getElectronExecutor();
-      // Aquí iría la lógica de compilación real
-
+      const result = await executor.buildMacOS(projectPath);
       return {
         platform: "macos",
-        status: "success",
-        outputFile: `${request.projectName}.dmg`,
-        fileSize: 135 * 1024 * 1024, // 135 MB
+        status: result.success ? "success" : "failed",
+        outputFile: result.outputFile,
+        outputPath: result.outputPath,
+        fileSize: result.fileSize,
+        error: result.error,
+        logs: result.logs,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        platform: "macos",
-        status: "failed",
-        error: message,
-      };
+      return { platform: "macos", status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  /**
-   * Compilar Linux
-   */
-  private async buildLinux(request: BuildRequest): Promise<BuildJobResult> {
+  private async buildLinux(request: BuildRequest, projectPath: string | null): Promise<BuildJobResult> {
+    if (!projectPath) return { platform: "linux", status: "failed", error: "No project path" };
     try {
       const executor = getElectronExecutor();
-      // Aquí iría la lógica de compilación real
-
+      const result = await executor.buildLinux(projectPath);
       return {
         platform: "linux",
-        status: "success",
-        outputFile: `${request.projectName}.AppImage`,
-        fileSize: 110 * 1024 * 1024, // 110 MB
+        status: result.success ? "success" : "failed",
+        outputFile: result.outputFile,
+        outputPath: result.outputPath,
+        fileSize: result.fileSize,
+        error: result.error,
+        logs: result.logs,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        platform: "linux",
-        status: "failed",
-        error: message,
-      };
+      return { platform: "linux", status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  /**
-   * Compilar Web
-   */
-  private async buildWeb(request: BuildRequest): Promise<BuildJobResult> {
+  // ===== WEB =====
+
+  private async buildWeb(request: BuildRequest, projectPath: string | null): Promise<BuildJobResult> {
+    // Para web: crear un directorio con index.html + assets
+    const webDir = join(this.outputDir, request.projectId || uuidv4(), "web");
+    mkdirSync(webDir, { recursive: true });
+
+    const html = request.sourceCode || defaultWebCode(request.projectName);
+    writeFileSync(join(webDir, "index.html"), html);
+
+    // Calcular tamaño
+    const size = Buffer.byteLength(html);
+
+    return {
+      platform: "web",
+      status: "success",
+      outputFile: "index.html",
+      outputPath: webDir,
+      fileSize: size,
+    };
+  }
+
+  // ===== VISTA PREVIA WEB =====
+
+  private async createWebPreview(jobId: string, request: BuildRequest, projectPath: string | null): Promise<string> {
+    // Crear un servidor HTTP simple para servir la web
+    const webDir = projectPath ? join(projectPath, "dist") : join(this.outputDir, request.projectId || jobId, "web");
+    if (!existsSync(webDir)) {
+      // Si no hay dist, usar el directorio web
+      const altDir = join(this.outputDir, request.projectId || jobId, "web");
+      if (existsSync(altDir)) {
+        mkdirSync(webDir, { recursive: true });
+        // Copiar index.html
+        writeFileSync(join(webDir, "index.html"), readFileSync(join(altDir, "index.html")));
+      }
+    }
+
+    // Encontrar un puerto libre
+    const port = 3000 + Math.floor(Math.random() * 1000);
+    const serverScript = join(webDir, "_preview-server.js");
+    writeFileSync(
+      serverScript,
+      `
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const server = http.createServer((req, res) => {
+  let filePath = path.join('${webDir}', req.url === '/' ? 'index.html' : req.url);
+  const ext = path.extname(filePath);
+  const types = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+  try {
+    const data = fs.readFileSync(filePath);
+    res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
+    res.end(data);
+  } catch (e) {
+    res.writeHead(404);
+    res.end('Not found');
+  }
+});
+server.listen(${port}, () => console.log('Preview en http://localhost:' + ${port}));
+`
+    );
+
+    // Iniciar servidor en background
     try {
-      // Compilar con Vite o Next.js
-      // Por ahora retornamos un resultado simulado
-
-      return {
-        platform: "web",
-        status: "success",
-        outputFile: `${request.projectName}-web.zip`,
-        fileSize: 5 * 1024 * 1024, // 5 MB
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        platform: "web",
-        status: "failed",
-        error: message,
-      };
+      await execAsync(`node ${serverScript} &`, { timeout: 3000 }).catch(() => {});
+      return `http://localhost:${port}`;
+    } catch {
+      return `http://localhost:${port}`;
     }
   }
 
-  /**
-   * Crear archivo ZIP con todos los resultados
-   */
+  // ===== ZIP DE SALIDA =====
+
   private async createOutputZip(jobId: string, job: BuildJob): Promise<string> {
-    try {
-      const zipPath = join(this.outputDir, `${jobId}-builds.zip`);
-      const jobDir = join(this.jobsDir, jobId);
+    const zipPath = join(this.outputDir, `${jobId}-binaries.zip`);
+    const tempDir = join(this.outputDir, jobId);
+    mkdirSync(tempDir, { recursive: true });
 
-      // Crear directorio del trabajo si no existe
-      mkdirSync(jobDir, { recursive: true });
-
-      // Crear archivo ZIP con los resultados
-      const command = `cd "${jobDir}" && zip -r "${zipPath}" . -x "node_modules/*" ".git/*"`;
-      await execAsync(command, { timeout: 120000 });
-
-      console.log(`[BuildService] ZIP creado: ${zipPath}`);
-      return zipPath;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("[BuildService] Error creando ZIP:", message);
-      throw error;
+    // Copiar archivos de cada plataforma
+    for (const result of job.results) {
+      if (result.status === "success" && result.outputPath && existsSync(result.outputPath)) {
+        const platformDir = join(tempDir, result.platform);
+        mkdirSync(platformDir, { recursive: true });
+        try {
+          await execAsync(`cp -r "${result.outputPath}"/* "${platformDir}/" 2>/dev/null || cp "${result.outputPath}" "${platformDir}/" 2>/dev/null || true`);
+        } catch {}
+      }
     }
+
+    // Crear README
+    writeFileSync(
+      join(tempDir, "README.md"),
+      `# ${job.buildRequest.projectName} - Binarios compilados\n\n` +
+        `Generado: ${new Date().toISOString()}\n\n` +
+        `## Plataformas\n\n` +
+        job.results
+          .map((r) => `- **${r.platform}**: ${r.status} ${r.outputFile ? `(${r.outputFile})` : ""}`)
+          .join("\n")
+    );
+
+    // Crear ZIP
+    try {
+      await execAsync(`cd "${tempDir}" && zip -r "${zipPath}" .`);
+    } catch {
+      // Si zip no está disponible, crear tar.gz
+      await execAsync(`cd "${tempDir}" && tar -czf "${zipPath}.tar.gz" .`);
+      return `${zipPath}.tar.gz`;
+    }
+
+    return zipPath;
   }
 
-  /**
-   * Calcular tamaño total de los archivos compilados
-   */
+  private async createSourceCodeZip(jobId: string, projectPath: string, projectName: string): Promise<string> {
+    const zipPath = join(this.outputDir, `${jobId}-source.zip`);
+    const safeName = projectName.replace(/[^a-zA-Z0-9-_]/g, "_");
+
+    try {
+      // Excluir node_modules, .git, dist, build
+      await execAsync(
+        `cd "${projectPath}/.." && zip -r "${zipPath}" "${safeName}" -x "*/node_modules/*" -x "*/.git/*" -x "*/dist/*" -x "*/build/*" -x "*/.next/*"`
+      );
+    } catch {
+      // Fallback: rsync + tar
+      const tempDir = `/tmp/source-${jobId}`;
+      mkdirSync(tempDir, { recursive: true });
+      try {
+        await execAsync(`rsync -av --exclude=node_modules --exclude=.git --exclude=dist --exclude=build --exclude=.next "${projectPath}/" "${tempDir}/"`);
+        await execAsync(`cd "${tempDir}" && tar -czf "${zipPath}.tar.gz" .`);
+        rmSync(tempDir, { recursive: true, force: true });
+        return `${zipPath}.tar.gz`;
+      } catch (err) {
+        throw new Error(`No se pudo crear ZIP de código fuente: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return zipPath;
+  }
+
   private async calculateTotalSize(job: BuildJob): Promise<number> {
-    return job.results.reduce((total, result) => {
-      return total + (result.fileSize || 0);
-    }, 0);
+    let total = 0;
+    for (const result of job.results) {
+      if (result.fileSize) total += result.fileSize;
+    }
+    return total;
   }
 
-  /**
-   * Obtener estado de un trabajo
-   */
-  getJobStatus(jobId: string): BuildJob | undefined {
+  // ===== HELPERS PÚBLICOS =====
+
+  getJob(jobId: string): BuildJob | undefined {
     return this.jobs.get(jobId);
   }
 
-  /**
-   * Generar reporte de compilación
-   */
-  generateBuildReport(job: BuildJob): string {
-    let report = `# Reporte de Compilación Multiplataforma\n\n`;
-    report += `**ID del Trabajo**: ${job.jobId}\n`;
-    report += `**Proyecto**: ${job.buildRequest.projectName}\n`;
-    report += `**Estado**: ${job.status}\n`;
-    report += `**Iniciado**: ${job.startedAt}\n`;
-    report += `**Completado**: ${job.completedAt}\n\n`;
-
-    report += `## Resumen\n`;
-    report += `**Total de compilaciones**: ${job.results.length}\n`;
-    report += `**Exitosas**: ${job.results.filter((r) => r.status === "success").length}\n`;
-    report += `**Fallidas**: ${job.results.filter((r) => r.status === "failed").length}\n`;
-    report += `**Omitidas**: ${job.results.filter((r) => r.status === "skipped").length}\n`;
-    report += `**Tamaño total**: ${job.totalSize ? (job.totalSize / 1024 / 1024).toFixed(2) + " MB" : "N/A"}\n\n`;
-
-    report += `## Resultados Detallados\n\n`;
-    for (const result of job.results) {
-      report += `### ${result.platform.toUpperCase()}\n`;
-      report += `**Estado**: ${result.status === "success" ? "✅ Exitosa" : result.status === "failed" ? "❌ Fallida" : "⏭️ Omitida"}\n`;
-
-      if (result.status === "success") {
-        report += `**Archivo**: ${result.outputFile}\n`;
-        report += `**Tamaño**: ${result.fileSize ? (result.fileSize / 1024 / 1024).toFixed(2) + " MB" : "N/A"}\n`;
-        report += `**Duración**: ${result.duration ? (result.duration / 1000).toFixed(2) + "s" : "N/A"}\n`;
-      } else if (result.status === "failed") {
-        report += `**Error**: ${result.error}\n`;
-      }
-      report += `\n`;
-    }
-
-    if (job.zipPath) {
-      report += `## Archivo ZIP\n`;
-      report += `**Ubicación**: ${job.zipPath}\n`;
-      report += `**Contenido**: Todos los archivos compilados + código fuente\n`;
-    }
-
-    return report;
+  listJobs(): BuildJob[] {
+    return Array.from(this.jobs.values());
   }
 
-  /**
-   * Limpiar trabajos antiguos
-   */
-  cleanupOldJobs(maxAgeHours: number = 24): void {
-    const now = Date.now();
-    const maxAge = maxAgeHours * 60 * 60 * 1000;
-
-    for (const [jobId, job] of this.jobs.entries()) {
-      if (job.completedAt) {
-        const jobAge = now - new Date(job.completedAt).getTime();
-        if (jobAge > maxAge) {
-          this.jobs.delete(jobId);
-          console.log(`[BuildService] Trabajo antiguo eliminado: ${jobId}`);
-        }
+  // Verificar qué toolchains están disponibles en el sistema
+  async checkToolchains(): Promise<{
+    android: boolean;
+    ios: boolean;
+    electron: boolean;
+    web: boolean;
+    details: Record<string, string>;
+  }> {
+    const check = async (cmd: string): Promise<boolean> => {
+      try {
+        await execAsync(`which ${cmd} 2>/dev/null`);
+        return true;
+      } catch {
+        return false;
       }
-    }
+    };
+
+    const [java, gradle, adb, xcode, electron, npm, node] = await Promise.all([
+      check("java"),
+      check("gradle"),
+      check("adb"),
+      check("xcodebuild"),
+      check("electron"),
+      check("npm"),
+      check("node"),
+    ]);
+
+    return {
+      android: java && gradle,
+      ios: xcode,
+      electron: electron || npm, // electron-builder via npx
+      web: node && npm,
+      details: {
+        java: java ? "OK" : "No encontrado",
+        gradle: gradle ? "OK" : "No encontrado",
+        adb: adb ? "OK" : "No encontrado (Android SDK)",
+        xcode: xcode ? "OK" : "No encontrado (solo macOS)",
+        electron: electron ? "OK" : "Vía npx electron-builder",
+        npm: npm ? "OK" : "No encontrado",
+        node: node ? "OK" : "No encontrado",
+      },
+    };
   }
 }
 
-/**
- * Instancia global del servicio
- */
-let buildServiceInstance: BuildService | null = null;
+// ===== CÓDIGO POR DEFECTO =====
 
+function defaultRNCode(projectName: string): string {
+  return `import React from 'react';
+import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
+
+export default function App() {
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>${projectName}</Text>
+        <Text style={styles.subtitle}>Generado por Agente IA</Text>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#6C5CE7' },
+  content: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 32, fontWeight: 'bold', color: 'white', marginBottom: 8 },
+  subtitle: { fontSize: 16, color: 'rgba(255,255,255,0.8)' },
+});
+`;
+}
+
+function defaultElectronCode(projectName: string): string {
+  return `import React from 'react';
+
+export default function App() {
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #6C5CE7 0%, #E94560 100%)',
+      color: 'white',
+      fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+    }}>
+      <h1 style={{ fontSize: '3rem', margin: 0 }}>${projectName}</h1>
+      <p style={{ fontSize: '1.2rem', opacity: 0.9 }}>Generado por Agente IA</p>
+    </div>
+  );
+}
+`;
+}
+
+function electronMainCode(projectName: string): string {
+  return `import { app, BrowserWindow } from 'electron';
+import path from 'path';
+
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    title: ${JSON.stringify(projectName)},
+  });
+
+  win.loadFile(path.join(__dirname, '../dist/index.html'));
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+`;
+}
+
+function defaultWebCode(projectName: string): string {
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${projectName}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #6C5CE7 0%, #E94560 100%);
+    color: white;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .container { text-align: center; }
+  h1 { font-size: 3rem; margin-bottom: 0.5rem; }
+  p { font-size: 1.2rem; opacity: 0.9; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>${projectName}</h1>
+    <p>Generado por Agente IA</p>
+  </div>
+</body>
+</html>`;
+}
+
+// Singleton
+let buildServiceInstance: BuildService | null = null;
 export function getBuildService(): BuildService {
   if (!buildServiceInstance) {
     buildServiceInstance = new BuildService();

@@ -1,1 +1,221 @@
-/**\n * Loop Context Manager\n * Gestiona el contexto dinámico del loop durante la ejecución\n */\n\nimport { useMemoryStore } from \"../memory/memory-store\";\nimport type { LoopContext } from \"./agent-loop\";\n\nexport interface DynamicContext {\n  conversationId: string;\n  currentObjective: string;\n  previousResults: unknown[];\n  failedAttempts: number;\n  successfulAttempts: number;\n  lastError?: string;\n  adaptations: string[];\n  confidence: number;\n}\n\n/**\n * Gestor de contexto dinámico\n */\nexport class LoopContextManager {\n  private memory = useMemoryStore.getState();\n  private contexts: Map<string, DynamicContext> = new Map();\n\n  /**\n   * Crear un contexto dinámico\n   */\n  createContext(conversationId: string, objective: string): DynamicContext {\n    const context: DynamicContext = {\n      conversationId,\n      currentObjective: objective,\n      previousResults: [],\n      failedAttempts: 0,\n      successfulAttempts: 0,\n      adaptations: [],\n      confidence: 1.0,\n    };\n\n    this.contexts.set(conversationId, context);\n    this.saveContextToMemory(context);\n\n    return context;\n  }\n\n  /**\n   * Obtener contexto existente\n   */\n  getContext(conversationId: string): DynamicContext | undefined {\n    return this.contexts.get(conversationId);\n  }\n\n  /**\n   * Actualizar contexto con resultado exitoso\n   */\n  recordSuccess(conversationId: string, result: unknown): void {\n    const context = this.getContext(conversationId);\n    if (!context) return;\n\n    context.previousResults.push(result);\n    context.successfulAttempts++;\n    context.confidence = Math.min(1.0, context.confidence + 0.1);\n    context.lastError = undefined;\n\n    this.saveContextToMemory(context);\n  }\n\n  /**\n   * Actualizar contexto con fallo\n   */\n  recordFailure(conversationId: string, error: string): void {\n    const context = this.getContext(conversationId);\n    if (!context) return;\n\n    context.failedAttempts++;\n    context.lastError = error;\n    context.confidence = Math.max(0.1, context.confidence - 0.15);\n\n    this.saveContextToMemory(context);\n  }\n\n  /**\n   * Registrar una adaptación\n   */\n  recordAdaptation(conversationId: string, adaptation: string): void {\n    const context = this.getContext(conversationId);\n    if (!context) return;\n\n    context.adaptations.push(`${new Date().toISOString()}: ${adaptation}`);\n    this.saveContextToMemory(context);\n  }\n\n  /**\n   * Ajustar objetivo dinámicamente\n   */\n  adjustObjective(conversationId: string, newObjective: string): void {\n    const context = this.getContext(conversationId);\n    if (!context) return;\n\n    context.currentObjective = newObjective;\n    context.adaptations.push(`Objetivo ajustado a: ${newObjective}`);\n    this.saveContextToMemory(context);\n  }\n\n  /**\n   * Evaluar si el contexto requiere cambio de estrategia\n   */\n  shouldChangeStrategy(conversationId: string): boolean {\n    const context = this.getContext(conversationId);\n    if (!context) return false;\n\n    // Cambiar estrategia si:\n    // 1. Demasiados fallos\n    if (context.failedAttempts > 3) return true;\n\n    // 2. Confianza muy baja\n    if (context.confidence < 0.3) return true;\n\n    // 3. Muchas adaptaciones\n    if (context.adaptations.length > 5) return true;\n\n    return false;\n  }\n\n  /**\n   * Obtener recomendación de estrategia\n   */\n  getStrategyRecommendation(conversationId: string): string {\n    const context = this.getContext(conversationId);\n    if (!context) return \"default\";\n\n    if (context.failedAttempts > 3) {\n      return \"decompose\"; // Descomponer en tareas más pequeñas\n    }\n\n    if (context.confidence < 0.3) {\n      return \"alternative-tool\"; // Usar herramienta alternativa\n    }\n\n    if (context.adaptations.length > 5) {\n      return \"abort\"; // Abortar y reportar\n    }\n\n    return \"continue\"; // Continuar con estrategia actual\n  }\n\n  /**\n   * Generar reporte del contexto\n   */\n  generateContextReport(conversationId: string): string {\n    const context = this.getContext(conversationId);\n    if (!context) return \"Contexto no encontrado\";\n\n    const successRate = context.successfulAttempts / (context.successfulAttempts + context.failedAttempts) || 0;\n\n    return `\n## Reporte de Contexto Dinámico\n\n**Objetivo Actual:** ${context.currentObjective}\n\n**Estadísticas:**\n- Intentos Exitosos: ${context.successfulAttempts}\n- Intentos Fallidos: ${context.failedAttempts}\n- Tasa de Éxito: ${(successRate * 100).toFixed(1)}%\n- Confianza: ${(context.confidence * 100).toFixed(1)}%\n\n**Último Error:** ${context.lastError || \"Ninguno\"}\n\n**Adaptaciones Realizadas:**\n${context.adaptations.map((a) => `- ${a}`).join(\"\\n\")}\n\n**Recomendación:** ${this.getStrategyRecommendation(conversationId)}\n\n**Resultados Previos:** ${context.previousResults.length} resultados almacenados\n`;\n  }\n\n  /**\n   * Guardar contexto en memoria\n   */\n  private saveContextToMemory(context: DynamicContext): void {\n    this.memory.store(\n      \"semantic\",\n      `loop:context:${context.conversationId}`,\n      JSON.stringify(context),\n      {\n        conversationId: context.conversationId,\n        tags: [\"loop\", \"context\", \"dynamic\"],\n        confidence: context.confidence,\n      }\n    );\n  }\n\n  /**\n   * Limpiar contexo\n   */\n  clearContext(conversationId: string): void {\n    this.contexts.delete(conversationId);\n  }\n\n  /**\n   * Obtener todos los contextos\n   */\n  getAllContexts(): DynamicContext[] {\n    return Array.from(this.contexts.values());\n  }\n}\n\n/**\n * Instancia global del gestor de contexto\n */\nlet contextManagerInstance: LoopContextManager | null = null;\n\nexport function getLoopContextManager(): LoopContextManager {\n  if (!contextManagerInstance) {\n    contextManagerInstance = new LoopContextManager();\n  }\n  return contextManagerInstance;\n}\n
+/**
+ * Loop Context Manager
+ * Gestiona el contexto dinámico del loop durante la ejecución
+ */
+
+import { useMemoryStore } from "../memory/memory-store";
+import type { LoopContext } from "./agent-loop";
+
+export interface DynamicContext {
+  conversationId: string;
+  currentObjective: string;
+  previousResults: unknown[];
+  failedAttempts: number;
+  successfulAttempts: number;
+  lastError?: string;
+  adaptations: string[];
+  confidence: number;
+}
+
+/**
+ * Gestor de contexto dinámico
+ */
+export class LoopContextManager {
+  private memory = useMemoryStore.getState();
+  private contexts: Map<string, DynamicContext> = new Map();
+
+  /**
+   * Crear un contexto dinámico
+   */
+  createContext(conversationId: string, objective: string): DynamicContext {
+    const context: DynamicContext = {
+      conversationId,
+      currentObjective: objective,
+      previousResults: [],
+      failedAttempts: 0,
+      successfulAttempts: 0,
+      adaptations: [],
+      confidence: 1.0,
+    };
+
+    this.contexts.set(conversationId, context);
+    this.saveContextToMemory(context);
+
+    return context;
+  }
+
+  /**
+   * Obtener contexto existente
+   */
+  getContext(conversationId: string): DynamicContext | undefined {
+    return this.contexts.get(conversationId);
+  }
+
+  /**
+   * Actualizar contexto con resultado exitoso
+   */
+  recordSuccess(conversationId: string, result: unknown): void {
+    const context = this.getContext(conversationId);
+    if (!context) return;
+
+    context.previousResults.push(result);
+    context.successfulAttempts++;
+    context.confidence = Math.min(1.0, context.confidence + 0.1);
+    context.lastError = undefined;
+
+    this.saveContextToMemory(context);
+  }
+
+  /**
+   * Actualizar contexto con fallo
+   */
+  recordFailure(conversationId: string, error: string): void {
+    const context = this.getContext(conversationId);
+    if (!context) return;
+
+    context.failedAttempts++;
+    context.lastError = error;
+    context.confidence = Math.max(0.1, context.confidence - 0.15);
+
+    this.saveContextToMemory(context);
+  }
+
+  /**
+   * Registrar una adaptación
+   */
+  recordAdaptation(conversationId: string, adaptation: string): void {
+    const context = this.getContext(conversationId);
+    if (!context) return;
+
+    context.adaptations.push(`${new Date().toISOString()}: ${adaptation}`);
+    this.saveContextToMemory(context);
+  }
+
+  /**
+   * Ajustar objetivo dinámicamente
+   */
+  adjustObjective(conversationId: string, newObjective: string): void {
+    const context = this.getContext(conversationId);
+    if (!context) return;
+
+    context.currentObjective = newObjective;
+    context.adaptations.push(`Objetivo ajustado a: ${newObjective}`);
+    this.saveContextToMemory(context);
+  }
+
+  /**
+   * Evaluar si el contexto requiere cambio de estrategia
+   */
+  shouldChangeStrategy(conversationId: string): boolean {
+    const context = this.getContext(conversationId);
+    if (!context) return false;
+
+    // Cambiar estrategia si:
+    // 1. Demasiados fallos
+    if (context.failedAttempts > 3) return true;
+
+    // 2. Confianza muy baja
+    if (context.confidence < 0.3) return true;
+
+    // 3. Muchas adaptaciones
+    if (context.adaptations.length > 5) return true;
+
+    return false;
+  }
+
+  /**
+   * Obtener recomendación de estrategia
+   */
+  getStrategyRecommendation(conversationId: string): string {
+    const context = this.getContext(conversationId);
+    if (!context) return "default";
+
+    if (context.failedAttempts > 3) {
+      return "decompose"; // Descomponer en tareas más pequeñas
+    }
+
+    if (context.confidence < 0.3) {
+      return "alternative-tool"; // Usar herramienta alternativa
+    }
+
+    if (context.adaptations.length > 5) {
+      return "abort"; // Abortar y reportar
+    }
+
+    return "continue"; // Continuar con estrategia actual
+  }
+
+  /**
+   * Generar reporte del contexto
+   */
+  generateContextReport(conversationId: string): string {
+    const context = this.getContext(conversationId);
+    if (!context) return "Contexto no encontrado";
+
+    const successRate = context.successfulAttempts / (context.successfulAttempts + context.failedAttempts) || 0;
+
+    return `
+## Reporte de Contexto Dinámico
+
+**Objetivo Actual:** ${context.currentObjective}
+
+**Estadísticas:**
+- Intentos Exitosos: ${context.successfulAttempts}
+- Intentos Fallidos: ${context.failedAttempts}
+- Tasa de Éxito: ${(successRate * 100).toFixed(1)}%
+- Confianza: ${(context.confidence * 100).toFixed(1)}%
+
+**Último Error:** ${context.lastError || "Ninguno"}
+
+**Adaptaciones Realizadas:**
+${context.adaptations.map((a) => `- ${a}`).join("\n")}
+
+**Recomendación:** ${this.getStrategyRecommendation(conversationId)}
+
+**Resultados Previos:** ${context.previousResults.length} resultados almacenados
+`;
+  }
+
+  /**
+   * Guardar contexto en memoria
+   */
+  private saveContextToMemory(context: DynamicContext): void {
+    this.memory.store(
+      "semantic",
+      `loop:context:${context.conversationId}`,
+      JSON.stringify(context),
+      {
+        conversationId: context.conversationId,
+        tags: ["loop", "context", "dynamic"],
+        confidence: context.confidence,
+      }
+    );
+  }
+
+  /**
+   * Limpiar contexo
+   */
+  clearContext(conversationId: string): void {
+    this.contexts.delete(conversationId);
+  }
+
+  /**
+   * Obtener todos los contextos
+   */
+  getAllContexts(): DynamicContext[] {
+    return Array.from(this.contexts.values());
+  }
+}
+
+/**
+ * Instancia global del gestor de contexto
+ */
+let contextManagerInstance: LoopContextManager | null = null;
+
+export function getLoopContextManager(): LoopContextManager {
+  if (!contextManagerInstance) {
+    contextManagerInstance = new LoopContextManager();
+  }
+  return contextManagerInstance;
+}
+

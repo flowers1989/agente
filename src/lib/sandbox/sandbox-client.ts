@@ -19,6 +19,8 @@ export interface FileEntry {
 }
 
 // ---- Crear o reutilizar sandbox ----
+// Ahora lanza error fuerte si Docker no está disponible.
+// El caller debe catchear y mostrar el mensaje al usuario.
 export async function clientGetOrCreateSandbox(taskId: string): Promise<{ taskId: string }> {
   // Intentar obtener el sandbox existente
   const checkRes = await fetch(`/api/sandbox/${encodeURIComponent(taskId)}`);
@@ -27,7 +29,17 @@ export async function clientGetOrCreateSandbox(taskId: string): Promise<{ taskId
     return { taskId: data.sandbox.taskId };
   }
 
-  // Si no existe, crearlo
+  // Verificar disponibilidad de Docker antes de intentar crear
+  const availRes = await fetch("/api/sandbox");
+  const availData = (await availRes.json().catch(() => ({ available: false }))) as { available: boolean };
+  if (!availData.available) {
+    throw new Error(
+      "Docker no está disponible. Inicia el daemon: sudo systemctl start docker (Linux) o abre Docker Desktop (Mac/Windows). " +
+        "Luego construye la imagen del sandbox: cd sandbox && bash build-image.sh"
+    );
+  }
+
+  // Si Docker está disponible, crear el sandbox
   const createRes = await fetch("/api/sandbox", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -35,8 +47,8 @@ export async function clientGetOrCreateSandbox(taskId: string): Promise<{ taskId
   });
 
   if (!createRes.ok) {
-    // Docker no disponible — modo degradado sin sandbox real
-    return { taskId };
+    const err = (await createRes.json().catch(() => ({ error: "Error desconocido" }))) as { error?: string };
+    throw new Error(`No se pudo crear el sandbox: ${err.error || `HTTP ${createRes.status}`}`);
   }
 
   const data = (await createRes.json()) as { sandbox: { taskId: string } };
