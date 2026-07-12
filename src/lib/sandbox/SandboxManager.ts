@@ -286,10 +286,22 @@ export class SandboxManager {
       NetworkMode: networkMode === "allowlist" ? "mexa-sandbox-net" : "bridge",
       // DNS
       Dns: networkMode === "allowlist" ? ["172.28.0.254"] : ["8.8.8.8", "8.8.4.4"],
-      // Exponer puertos VNC (5900) y noVNC (6080) al host
+      // Exponer puertos al host:
+      // - 5900: VNC raw (para clientes VNC nativos)
+      // - 6080: noVNC web (para ver en navegador)
+      // - 3001-3010: dev servers del agente (Next.js, Vite, etc.)
+      //   El agente levanta proyectos en estos puertos y el usuario puede
+      //   abrirlos en su navegador real.
       PortBindings: {
         "6080/tcp": [{ HostPort: "" }], // noVNC web — puerto dinámico
         "5900/tcp": [{ HostPort: "" }], // VNC raw — puerto dinámico
+        "3001/tcp": [{ HostPort: "" }], // dev server 1 (Next.js, etc.)
+        "3002/tcp": [{ HostPort: "" }], // dev server 2
+        "3003/tcp": [{ HostPort: "" }], // dev server 3
+        "4000/tcp": [{ HostPort: "" }], // dev server 4
+        "5000/tcp": [{ HostPort: "" }], // dev server 5
+        "8000/tcp": [{ HostPort: "" }], // dev server 6 (Flask, etc.)
+        "8080/tcp": [{ HostPort: "" }], // dev server 7
       },
       // Sin poder escribir al log del host
       LogConfig: { Type: "json-file", Config: { "max-size": "10m", "max-file": "1" } },
@@ -724,6 +736,61 @@ export class SandboxManager {
       };
     } catch {
       return null;
+    }
+  }
+
+  // ====== DEV SERVER URL ======
+  // Devuelve la URL del dev server que el agente levantó en un puerto del sandbox.
+  // Mapea el puerto interno (ej: 3001) al puerto externo asignado por Docker.
+  // El usuario puede abrir esta URL en su navegador real para ver la app.
+  async getDevServerUrl(
+    taskId: string,
+    internalPort: number = 3001
+  ): Promise<{ url: string; hostPort: number; internalPort: number } | null> {
+    const sandbox = this.sandboxes.get(taskId);
+    if (!sandbox) return null;
+    try {
+      const container = this.docker.getContainer(sandbox.containerId);
+      const info = await container.inspect();
+      const ports = info.NetworkSettings?.Ports || {};
+      const binding = ports[`${internalPort}/tcp`]?.[0];
+      if (!binding) return null;
+      const host = binding.HostIp === "0.0.0.0" ? "localhost" : binding.HostIp;
+      return {
+        url: `http://${host}:${binding.HostPort}`,
+        hostPort: parseInt(binding.HostPort, 10),
+        internalPort,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Lista todos los puertos dev server mapeados al host.
+  // Útil para mostrar al usuario qué apps están corriendo.
+  async getDevServerUrls(taskId: string): Promise<Array<{ internalPort: number; hostPort: number; url: string }>> {
+    const sandbox = this.sandboxes.get(taskId);
+    if (!sandbox) return [];
+    try {
+      const container = this.docker.getContainer(sandbox.containerId);
+      const info = await container.inspect();
+      const ports = info.NetworkSettings?.Ports || {};
+      const devPorts = ["3001", "3002", "3003", "4000", "5000", "8000", "8080"];
+      const result: Array<{ internalPort: number; hostPort: number; url: string }> = [];
+      for (const port of devPorts) {
+        const binding = ports[`${port}/tcp`]?.[0];
+        if (binding) {
+          const host = binding.HostIp === "0.0.0.0" ? "localhost" : binding.HostIp;
+          result.push({
+            internalPort: parseInt(port, 10),
+            hostPort: parseInt(binding.HostPort, 10),
+            url: `http://${host}:${binding.HostPort}`,
+          });
+        }
+      }
+      return result;
+    } catch {
+      return [];
     }
   }
 

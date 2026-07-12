@@ -190,17 +190,102 @@ const AGENT_TOOLS: ToolDef[] = [
       required: ["url"],
     },
   },
-  // ===== BROWSER (navegador real en el sandbox, visible vía VNC) =====
+  // ===== BROWSER (navegador Chromium REAL dentro del sandbox, visible vía VNC) =====
+  // Estas herramientas controlan el Chromium con GUI que el usuario puede ver.
+  // Cada acción devuelve un screenshot para que el LLM pueda "ver" el resultado.
   {
-    name: "browser_open",
+    name: "browser_navigate",
     description:
-      "Abre una URL en el navegador Chromium del sandbox (visible en el VNC). El usuario puede ver lo que haces en tiempo real. Úsalo para navegar a sitios, hacer búsquedas visibles, interactuar con webs que requieren JS.",
+      "Abre una URL en el Chromium del sandbox (visible en VNC). El usuario ve la navegación en tiempo real. Devuelve un screenshot del resultado. Úsalo para: visitar sitios, hacer búsquedas en Google, abrir documentación, testear apps web.",
     paramsSchema: {
       type: "object",
       properties: {
-        url: { type: "string", description: "La URL a abrir. Ej: 'https://google.com'" },
+        url: { type: "string", description: "La URL a abrir. Ej: 'https://google.com', 'http://localhost:3001'" },
       },
       required: ["url"],
+    },
+  },
+  {
+    name: "browser_click",
+    description:
+      "Hace click en coordenadas (x, y) de la pantalla del sandbox. Las coordenadas son píxeles desde la esquina superior izquierda (0,0). El screenshot devuelto por browser_navigate te ayuda a identificar dónde clickear. Úsalo para: clickear botones, links, campos de texto, etc.",
+    paramsSchema: {
+      type: "object",
+      properties: {
+        x: { type: "number", description: "Coordenada X en píxeles (0 = izquierda)" },
+        y: { type: "number", description: "Coordenada Y en píxeles (0 = arriba)" },
+      },
+      required: ["x", "y"],
+    },
+  },
+  {
+    name: "browser_type",
+    description:
+      "Escribe texto en el elemento enfocado actualmente del navegador. Úsalo después de browser_click en un campo de texto. Devuelve un screenshot. Ej: click en search box → type 'query' → press Enter.",
+    paramsSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "El texto a escribir" },
+      },
+      required: ["code"],
+    },
+  },
+  {
+    name: "browser_key",
+    description:
+      "Presiona una tecla o combinación. Útil para: Enter (enviar formularios), Tab (cambiar campo), Escape (cerrar modals), ctrl+a (seleccionar todo), ctrl+c (copiar), ctrl+v (pegar), F5 (recargar).",
+    paramsSchema: {
+      type: "object",
+      properties: {
+        code: {
+          type: "string",
+          description: "La tecla. Ej: 'Enter', 'Tab', 'Escape', 'ctrl+a', 'ctrl+c', 'ctrl+v', 'F5'",
+          enum: ["Enter", "Tab", "Escape", "Backspace", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "ctrl+c", "ctrl+v", "ctrl+a", "ctrl+s", "F5", "F12"],
+        },
+      },
+      required: ["code"],
+    },
+  },
+  {
+    name: "browser_scroll",
+    description:
+      "Hace scroll en la página (up o down). Útil para ver contenido que no está visible en el screenshot inicial.",
+    paramsSchema: {
+      type: "object",
+      properties: {
+        direction: { type: "string", description: "Dirección del scroll", enum: ["up", "down"] },
+        amount: { type: "number", description: "Cantidad de clicks de scroll (1-20, default 3)" },
+      },
+      required: ["direction"],
+    },
+  },
+  {
+    name: "browser_screenshot",
+    description:
+      "Toma un screenshot de la pantalla actual del sandbox. Úsalo para: ver el estado actual de la página, verificar si un elemento apareció, decidir dónde clickear. SIEMPRE toma un screenshot después de navegar para ver el resultado.",
+    paramsSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "browser_extract_text",
+    description:
+      "Extrae todo el texto seleccionable de la página actual (selecciona todo con ctrl+a, copia con ctrl+c, lee el portapapeles). Úsalo para: leer contenido de artículos, extraer datos de páginas, obtener texto para análisis.",
+    paramsSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "browser_get_url",
+    description: "Obtiene la URL actual del navegador. Útil para verificar redirecciones o saber en qué página estás.",
+    paramsSchema: {
+      type: "object",
+      properties: {},
+      required: [],
     },
   },
   // ===== CODE GENERATION =====
@@ -256,8 +341,9 @@ const SYSTEM_PROMPT = `Eres un agente IA autónomo tipo Manus IA. Completas tare
 ## REGLA #1 — PROHIBIDO devolver código en el chat
 NUNCA devuelvas bloques de código en el campo "thought". El código va en archivos del sandbox usando file_write.
 
-## REGLA #2 — PROHIBIDO usar el puerto 3000
-El puerto 3000 está ocupado. Para servir proyectos web usa 3001, 3002, 4000, 8080, etc.
+## REGLA #2 — PUERTOS para dev servers
+El puerto 3000 está ocupado por la app principal. Para servir proyectos web usa: 3001, 3002, 3003, 4000, 5000, 8000, u 8080.
+Estos puertos están MAPEADOS al host — el usuario puede abrir http://localhost:<puerto> en su navegador real.
 
 ## REGLA #3 — todo.md obligatorio (MANIPULACIÓN DE ATENCIÓN)
 Al inicio de una tarea compleja, usa todo_update para crear /workspace/todo.md con todos los pasos.
@@ -276,6 +362,27 @@ Los errores son evidencia que te hace mejor.
 ## REGLA #6 — Human-in-the-loop
 Si necesitas credenciales, confirmación, o encuentras un captcha, usa ask_user.
 El agente se pausa hasta que el usuario responde.
+
+## REGLA #7 — USAR EL NAVEGADOR DEL SANDBOX (estilo Manus IA)
+Tienes herramientas browser_* que controlan el Chromium DENTRO del sandbox. El usuario lo ve vía VNC.
+- browser_navigate: abre una URL (visible para el usuario)
+- browser_screenshot: toma screenshot para que PUEDAS VER el resultado
+- browser_click: click en coordenadas (x, y) del screenshot
+- browser_type: escribe texto en el campo enfocado
+- browser_key: presiona teclas (Enter, Tab, ctrl+a, etc.)
+- browser_scroll: scroll up/down
+- browser_extract_text: extrae texto de la página
+- browser_get_url: obtiene URL actual
+
+FLUJO OBLIGATORIO para proyectos web:
+1. file_write → crear archivos del proyecto
+2. shell_exec → npm install
+3. shell_exec → PORT=3001 npm run dev &
+4. browser_navigate → http://localhost:3001 (abre en Chromium visible)
+5. browser_screenshot → VERIFICAR que la app cargó
+6. Si hay errores, arréglalos y repite
+
+NUNCA declares isComplete=true sin haber verificado con browser_screenshot que la app funciona.
 
 ## Tu ciclo de trabajo (pensar → actuar → observar → evaluar → repetir)
 En CADA iteración devuelves un JSON:
@@ -622,33 +729,63 @@ async function executeToolSafely(
   context: { conversationId: string; userId: string }
 ): Promise<ToolExecutionResult> {
   try {
-    // Mapear nombres con prefijos a los nombres del toolRegistry
+    // ===== BROWSER tools (controlan el Chromium DENTRO del sandbox, visible vía VNC) =====
+    // Estas herramientas usan el sandbox-browser-executor que controla xdotool/xclip
+    const browserContext = { conversationId: context.conversationId, userId: context.userId };
+
+    if (toolName === "browser_navigate") {
+      const { browserNavigate } = await import("./sandbox-browser-executor");
+      return browserNavigate(String(params.url || ""), browserContext);
+    }
+    if (toolName === "browser_click") {
+      const { browserClick } = await import("./sandbox-browser-executor");
+      return browserClick(Number(params.x), Number(params.y), browserContext);
+    }
+    if (toolName === "browser_type") {
+      const { browserType } = await import("./sandbox-browser-executor");
+      return browserType(String(params.code || params.text || ""), browserContext);
+    }
+    if (toolName === "browser_key") {
+      const { browserKeyPress } = await import("./sandbox-browser-executor");
+      return browserKeyPress(String(params.code || params.key || "Return"), browserContext);
+    }
+    if (toolName === "browser_scroll") {
+      const { browserScroll } = await import("./sandbox-browser-executor");
+      return browserScroll(
+        (params.direction as "up" | "down") || "down",
+        Number(params.amount || 3),
+        browserContext
+      );
+    }
+    if (toolName === "browser_screenshot") {
+      const { browserScreenshot } = await import("./sandbox-browser-executor");
+      return browserScreenshot(browserContext);
+    }
+    if (toolName === "browser_extract_text") {
+      const { browserExtractText } = await import("./sandbox-browser-executor");
+      return browserExtractText(browserContext);
+    }
+    if (toolName === "browser_get_url") {
+      const { browserGetUrl } = await import("./sandbox-browser-executor");
+      return browserGetUrl(browserContext);
+    }
+
+    // ===== Otras herramientas (mapear a toolRegistry) =====
     const toolMap: Record<string, string> = {
       shell_exec: "Bash/Shell Execution",
       shell_python: "Python Execution",
       shell_node: "Node.js Execution",
       file_write: "File Write",
       file_read: "File Read",
-      file_list: "Bash/Shell Execution", // file_list se implementa via ls
       web_search: "Web Search",
       web_extract: "Web Extraction",
-      browser_open: "Bash/Shell Execution", // browser_open se implementa via chromium
       code_generate: "Code Generation",
-      todo_update: "File Write", // todo_update se maneja especial arriba
     };
 
     // Para file_list, ejecutar ls via bash
     if (toolName === "file_list") {
       const dirPath = String(params.path || "/workspace");
       return executeToolSafely("shell_exec", { code: `ls -la ${dirPath}` }, context);
-    }
-
-    // Para browser_open, abrir chromium en el sandbox
-    if (toolName === "browser_open") {
-      const url = String(params.url || "https://google.com");
-      return executeToolSafely("shell_exec", {
-        code: `chromium --no-sandbox --disable-gpu --start-maximized --app=${JSON.stringify(url)} &`,
-      }, context);
     }
 
     const registryName = toolMap[toolName] || toolName;
