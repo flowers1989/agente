@@ -115,7 +115,8 @@ RUN groupadd -g 1000 agent \
     && useradd --create-home --shell /bin/bash --uid 1000 --gid 1000 --no-user-group agent
 
 # Script de inicio del escritorio virtual + VNC + noVNC
-COPY --chown=agent:agent sandbox/entrypoint.sh /home/agent/entrypoint.sh
+# El build context es sandbox/, así que la ruta es solo entrypoint.sh
+COPY --chown=agent:agent entrypoint.sh /home/agent/entrypoint.sh
 RUN chmod +x /home/agent/entrypoint.sh
 
 # Directorio de trabajo
@@ -124,7 +125,7 @@ RUN chown agent:agent /workspace /home/agent /opt/ms-playwright
 
 # PATH y variables de entorno
 ENV PATH="/home/agent/.local/bin:${PATH}" \
-    PYTHONPATH="/home/agent/.local/lib/python3.12/site-packages:${PYTHONPATH}" \
+    PYTHONPATH="/home/agent/.local/lib/python3.12/site-packages" \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     CHROME_BIN=/usr/bin/chromium \
