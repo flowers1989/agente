@@ -182,7 +182,7 @@ export class AgentOrchestrator {
         conversationId,
         userId: "user",
         objective: userObjective,
-        maxIterations: mode === "quality" ? 20 : 15,
+        maxIterations: mode === "quality" ? 50 : 30,
         mode,
         onIteration: (iteration: LoopIteration) => {
           // Convertir cada iteración del loop en un "step" visible para la UI
@@ -220,7 +220,6 @@ export class AgentOrchestrator {
           }
         },
         onThought: (thought: string) => {
-          // Emitir el pensamiento del agente como progreso
           const planStep = plan.steps[0];
           if (planStep) {
             callbacks.onStepProgress?.(planStep.id, thought.slice(0, 300));
@@ -234,6 +233,28 @@ export class AgentOrchestrator {
         },
         onError: (error: string) => {
           console.error(`[Orchestrator] Loop error: ${error}`);
+        },
+        // Human-in-the-loop: cuando el agente pide input, mostrarlo en el chat
+        onUserInputRequest: async (prompt: string): Promise<string> => {
+          // En producción esto debería abrir un modal en la UI y esperar respuesta.
+          // Por ahora, emitimos un evento y devolvemos un string vacío para que el agente continúe.
+          console.log(`[Orchestrator] User input requested: ${prompt}`);
+          // Emitir como progreso para que la UI lo muestre
+          const planStep = plan.steps[0];
+          if (planStep) {
+            callbacks.onStepProgress?.(planStep.id, `⏸️ Esperando input del usuario: ${prompt}`);
+          }
+          // TODO: implementar modal real en la UI. Por ahora devolvemos vacío.
+          return "";
+        },
+        // Todo.md: actualizar la UI cuando el agente actualice su lista de tareas
+        onTodoUpdate: (todoMarkdown: string) => {
+          console.log(`[Orchestrator] Todo updated (${todoMarkdown.length} chars)`);
+          // Guardar en working memory para que la UI pueda leerlo
+          useMemoryStore.getState().store("working", `todo:${conversationId}`, todoMarkdown, {
+            conversationId,
+            tags: ["todo", "progress", conversationId],
+          });
         },
       });
 

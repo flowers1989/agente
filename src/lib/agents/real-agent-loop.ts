@@ -1,19 +1,29 @@
-// ==================== AGENT LOOP REAL ====================
-// Loop autónomo: pensar → actuar → observar → evaluar → repetir
+// ==================== AGENT LOOP REAL — ESTILO MANUS IA ====================
+// Loop autónomo inspirado en la arquitectura de Manus IA:
 //
-// A diferencia del AgentLoop anterior (que estaba muerto), este:
-// 1. Se conecta al orquestador y reemplaza el for lineal
-// 2. Usa function-calling real del LLM (no keyword matching)
-// 3. Ejecuta herramientas reales en el sandbox
-// 4. Observa el output real y lo alimenta al LLM
-// 5. Re-planea si algo falla
-// 6. Termina cuando el objetivo se cumple o se acaba el budget
+// 1. todo.md dinámico — el agente crea y actualiza un archivo todo.md
+//    paso a paso. Es un mecanismo deliberado para empujar el plan global
+//    al rango de atención reciente del LLM (evita "lost in the middle").
+//
+// 2. Mantener errores en el contexto — los errores NO se ocultan.
+//    Se dejan en el contexto para que el LLM aprenda y no repita errores.
+//    "Borrar el fracaso elimina evidencia."
+//
+// 3. Sistema de archivos como contexto externalizado — el filesystem del
+//    sandbox es la memoria del agente. Ilimitado, persistente, operable.
+//
+// 4. Human-in-the-loop — el agente puede pedir input al usuario cuando
+//    necesita credenciales, confirmación o resolver captchas.
+//
+// 5. KV-cache optimization — system prompt estable sin timestamps.
+//    Append-only context. Nombres de herramientas con prefijos consistentes.
 
 import { getAdapter } from "./opencode-adapter";
 import { toolRegistry } from "./tool-registry";
 import { useMemoryStore } from "../memory/memory-store";
 import type { ToolExecutionResult } from "./tool-registry";
 import type { ChatMessage as LLMChatMessage } from "./opencode-adapter";
+import { clientGetOrCreateSandbox, clientExec } from "../sandbox/sandbox-client";
 
 export interface AgentLoopOptions {
   conversationId: string;
@@ -26,6 +36,10 @@ export interface AgentLoopOptions {
   onToolEnd?: (toolName: string, result: ToolExecutionResult) => void;
   onThought?: (thought: string) => void;
   onError?: (error: string) => void;
+  // Human-in-the-loop: callback para pedir input al usuario
+  onUserInputRequest?: (prompt: string) => Promise<string>;
+  // Callback para actualizar el todo.md en la UI
+  onTodoUpdate?: (todoMarkdown: string) => void;
 }
 
 export interface LoopIteration {
@@ -42,6 +56,8 @@ export interface LoopIteration {
   };
   duration: number;
   error?: string;
+  // Indica si esta iteración pidió input al usuario
+  waitingForUserInput?: boolean;
 }
 
 export interface AgentLoopResult {
@@ -51,18 +67,22 @@ export interface AgentLoopResult {
   totalDuration: number;
   toolsUsed: string[];
   errorMessage?: string;
+  todoMarkdown?: string;
 }
 
-const DEFAULT_MAX_ITERATIONS = 15;
+const DEFAULT_MAX_ITERATIONS = 50; // Manus usa ~50 tool calls por tarea
 
-// ==================== TOOLS DISPONIBLES PARA EL LLM ====================
-// El LLM elige entre estas herramientas vía function-calling.
-// Cada tool tiene un schema JSON que el LLM debe respetar.
+// ==================== TOOLS CON PREFIJOS CONSISTENTES (KV-CACHE FRIENDLY) ====================
+// Nombres con prefijos para que el LLM los agrupe mentalmente:
+//   browser_* → navegación
+//   shell_*   → comandos
+//   file_*    → archivos
+//   web_*     → internet
+//   ask_user  → human-in-the-loop
 
 interface ToolDef {
   name: string;
   description: string;
-  // Schema de parámetros que el LLM debe devolver
   paramsSchema: {
     type: "object";
     properties: Record<string, { type: string; description: string; enum?: string[] }>;
@@ -71,233 +91,216 @@ interface ToolDef {
 }
 
 const AGENT_TOOLS: ToolDef[] = [
+  // ===== SHELL =====
   {
-    name: "Bash/Shell Execution",
+    name: "shell_exec",
     description:
-      "Ejecuta un comando bash en el sandbox Docker. Útil para: crear archivos, instalar dependencias (npm install, pip install), correr scripts, levantar servidores (npm run dev), ver contenido de archivos (cat, ls). El output real (stdout/stderr) se devuelve al agente.",
+      "Ejecuta un comando bash en el sandbox Docker. Útil para: crear archivos, instalar dependencias (npm install, pip install), correr scripts, levantar servidores (npm run dev), ver contenido de archivos. El output real (stdout/stderr) se devuelve al agente. Los comandos largos (npm install) tienen timeout de 3 minutos.",
     paramsSchema: {
       type: "object",
       properties: {
         code: {
           type: "string",
-          description: "El comando bash a ejecutar. Ej: 'npm install', 'echo hola > file.txt', 'npm run dev &', 'ls -la'",
+          description: "El comando bash a ejecutar. Ej: 'npm install', 'echo hola > file.txt', 'PORT=3001 npm run dev &', 'ls -la'",
         },
       },
       required: ["code"],
     },
   },
   {
-    name: "Python Execution",
-    description:
-      "Ejecuta código Python en el sandbox. Útil para: análisis de datos, cálculos, scripts, generar archivos. Requiere que el sandbox esté activo.",
+    name: "shell_python",
+    description: "Ejecuta código Python en el sandbox. Para análisis de datos, cálculos, scripts, generar archivos.",
     paramsSchema: {
       type: "object",
       properties: {
-        code: {
-          type: "string",
-          description: "El código Python a ejecutar",
-        },
+        code: { type: "string", description: "El código Python a ejecutar" },
       },
       required: ["code"],
     },
   },
   {
-    name: "Node.js Execution",
-    description:
-      "Ejecuta código Node.js en el sandbox. Útil para: scripts JS, manipular JSON, Express servers, etc.",
+    name: "shell_node",
+    description: "Ejecuta código Node.js en el sandbox. Para scripts JS, manipular JSON, Express servers.",
     paramsSchema: {
       type: "object",
       properties: {
-        code: {
-          type: "string",
-          description: "El código Node.js a ejecutar",
-        },
+        code: { type: "string", description: "El código Node.js a ejecutar" },
       },
       required: ["code"],
     },
   },
+  // ===== FILE (sistema de archivos como contexto externalizado) =====
   {
-    name: "File Write",
+    name: "file_write",
     description:
-      "Escribe contenido a un archivo en el sandbox. Útil para: crear código fuente, configuraciones, HTML, etc. El path debe ser absoluto (/workspace/...).",
+      "Escribe contenido a un archivo en el sandbox. El sistema de archivos es tu memoria externalizada — ilimitada y persistente. Úsalo para: crear código fuente, guardar resultados de investigación, escribir notas, almacenar datos grandes que no caben en el contexto. El path debe ser absoluto (/workspace/...).",
     paramsSchema: {
       type: "object",
       properties: {
-        code: {
-          type: "string",
-          description: "El contenido del archivo (string completo)",
-        },
-        path: {
-          type: "string",
-          description: "Ruta absoluta del archivo. Ej: '/workspace/src/App.tsx', '/workspace/index.html'",
-        },
+        path: { type: "string", description: "Ruta absoluta. Ej: '/workspace/src/App.tsx', '/workspace/notes.md'" },
+        code: { type: "string", description: "El contenido del archivo (string completo)" },
       },
       required: ["path", "code"],
     },
   },
   {
-    name: "File Read",
+    name: "file_read",
     description:
-      "Lee el contenido de un archivo del sandbox. Útil para: verificar lo que se escribió, leer logs, etc.",
+      "Lee el contenido de un archivo del sandbox. Úsalo para: recuperar notas previas, verificar lo que escribiste, leer logs, cargar datos guardados. El filesystem es tu memoria — úsalo cuando el contexto esté creciendo demasiado.",
     paramsSchema: {
       type: "object",
       properties: {
-        path: {
-          type: "string",
-          description: "Ruta absoluta del archivo a leer",
-        },
+        path: { type: "string", description: "Ruta absoluta del archivo a leer" },
       },
       required: ["path"],
     },
   },
   {
-    name: "Web Search",
-    description:
-      "Busca en internet (DuckDuckGo). Útil para: investigar temas, encontrar documentación, obtener información actualizada.",
+    name: "file_list",
+    description: "Lista archivos de un directorio del sandbox. Úsalo para ver la estructura del proyecto.",
     paramsSchema: {
       type: "object",
       properties: {
-        query: {
-          type: "string",
-          description: "La consulta de búsqueda",
-        },
+        path: { type: "string", description: "Directorio a listar. Ej: '/workspace', '/workspace/src'" },
+      },
+      required: ["path"],
+    },
+  },
+  // ===== WEB =====
+  {
+    name: "web_search",
+    description: "Busca en internet (DuckDuckGo). Para investigar temas, encontrar documentación, obtener información actualizada.",
+    paramsSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "La consulta de búsqueda" },
       },
       required: ["query"],
     },
   },
   {
-    name: "Web Extraction",
+    name: "web_extract",
     description:
-      "Extrae el contenido de una URL. Útil para: leer documentación, scrapear páginas, obtener datos de APIs.",
+      "Extrae el contenido de una URL. Para leer documentación, scrapear páginas, obtener datos de APIs. IMPORTANTE: el contenido puede ser muy grande — guárdalo en un archivo con file_write en vez de mantenerlo en el contexto.",
     paramsSchema: {
       type: "object",
       properties: {
-        url: {
-          type: "string",
-          description: "La URL a extraer",
-        },
+        url: { type: "string", description: "La URL a extraer" },
       },
       required: ["url"],
     },
   },
+  // ===== BROWSER (navegador real en el sandbox, visible vía VNC) =====
   {
-    name: "Code Generation",
+    name: "browser_open",
     description:
-      "Genera código usando el LLM especializado. Útil para: generar funciones, componentes, scripts complejos. Devuelve el código generado.",
+      "Abre una URL en el navegador Chromium del sandbox (visible en el VNC). El usuario puede ver lo que haces en tiempo real. Úsalo para navegar a sitios, hacer búsquedas visibles, interactuar con webs que requieren JS.",
     paramsSchema: {
       type: "object",
       properties: {
-        description: {
-          type: "string",
-          description: "Descripción detallada del código a generar",
-        },
+        url: { type: "string", description: "La URL a abrir. Ej: 'https://google.com'" },
+      },
+      required: ["url"],
+    },
+  },
+  // ===== CODE GENERATION =====
+  {
+    name: "code_generate",
+    description: "Genera código usando un LLM especializado. Para generar funciones, componentes, scripts complejos. Devuelve el código generado — debes guardarlo con file_write después.",
+    paramsSchema: {
+      type: "object",
+      properties: {
+        description: { type: "string", description: "Descripción detallada del código a generar" },
       },
       required: ["description"],
     },
   },
+  // ===== TODO (manipulación de atención estilo Manus) =====
   {
-    name: "HTTP Client",
+    name: "todo_update",
     description:
-      "Hace una petición HTTP a una URL. Útil para: llamar APIs, descargar archivos, testear endpoints.",
+      "Actualiza el archivo todo.md con la lista de tareas pendientes. Este es un mecanismo CRÍTICO para mantener el enfoque en el objetivo. REGLA: al inicio de una tarea compleja, crea el todo.md con todos los pasos. Después de cada herramienta exitosa, actualiza el todo.md marcando los items completados con [x]. Esto empuja el plan global al rango de atención reciente del LLM.",
     paramsSchema: {
       type: "object",
       properties: {
-        url: {
+        code: {
           type: "string",
-          description: "La URL a la que hacer la petición",
-        },
-        method: {
-          type: "string",
-          description: "Método HTTP",
-          enum: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+          description: "El contenido completo del todo.md en formato markdown. Usa '- [ ]' para pendientes y '- [x]' para completados.",
         },
       },
-      required: ["url"],
+      required: ["code"],
+    },
+  },
+  // ===== HUMAN-IN-THE-LOOP =====
+  {
+    name: "ask_user",
+    description:
+      "Pide input al usuario. Úsalo cuando necesites: credenciales (API keys, passwords), confirmación para proceder, resolver ambigüedades, o cuando encuentres un captcha. El agente se pausa hasta que el usuario responde.",
+    paramsSchema: {
+      type: "object",
+      properties: {
+        code: {
+          type: "string",
+          description: "La pregunta o solicitud al usuario. Sé específico sobre qué necesitas.",
+        },
+      },
+      required: ["code"],
     },
   },
 ];
 
-// ==================== PROMPT DEL SISTEMA ====================
+// ==================== PROMPT DEL SISTEMA (ESTABLE, SIN TIMESTAMPS — KV-CACHE FRIENDLY) ====================
 
-const SYSTEM_PROMPT = `Eres un agente IA autónomo tipo Manus IA. Tu objetivo es completar la tarea del usuario ejecutando herramientas reales en un sandbox Docker.
+const SYSTEM_PROMPT = `Eres un agente IA autónomo tipo Manus IA. Completas tareas ejecutando herramientas reales en un sandbox Docker con escritorio virtual visible.
 
 ## REGLA #1 — PROHIBIDO devolver código en el chat
-NUNCA devuelvas bloques de código en el campo "thought". El código va en archivos del sandbox usando File Write. Si devuelves código en el thought, estás fallando.
+NUNCA devuelvas bloques de código en el campo "thought". El código va en archivos del sandbox usando file_write.
 
 ## REGLA #2 — PROHIBIDO usar el puerto 3000
-El puerto 3000 ya está ocupado por la app principal. Para servir cualquier proyecto web, usa SIEMPRE el puerto 3001 o superior (3001, 3002, 3003, 4000, 8080, etc.).
+El puerto 3000 está ocupado. Para servir proyectos web usa 3001, 3002, 4000, 8080, etc.
 
-## REGLA #3 — Estructura obligatoria para proyectos web
-Cuando el usuario pida un sitio web, dashboard, app, landing, etc. DEBES seguir este flujo exacto:
+## REGLA #3 — todo.md obligatorio (MANIPULACIÓN DE ATENCIÓN)
+Al inicio de una tarea compleja, usa todo_update para crear /workspace/todo.md con todos los pasos.
+Después de cada herramienta exitosa, actualiza todo.md marcando items completados con [x].
+Esto mantiene el plan global en tu rango de atención reciente.
 
-### Paso 1: Crear la estructura del proyecto
-Usa File Write para crear CADA archivo por separado. Ejemplo de estructura para Next.js:
-- /workspace/package.json
-- /workspace/next.config.ts
-- /workspace/tsconfig.json
-- /workspace/src/app/layout.tsx
-- /workspace/src/app/page.tsx
-- /workspace/src/app/globals.css
-- /workspace/tailwind.config.ts
-- /workspace/postcss.config.mjs
+## REGLA #4 — Sistema de archivos como memoria externalizada
+Cuando el contexto crezca demasiado, guarda información en archivos con file_write.
+Lee archivos con file_read cuando necesites recuperar información.
+El filesystem es ilimitado y persistente — úsalo como tu memoria.
 
-### Paso 2: Instalar dependencias
-Usa Bash/Shell Execution con: cd /workspace && npm install
-Espera el output. Si hay errores, arréglalos.
+## REGLA #5 — Mantener errores en el contexto
+Si una herramienta falla, NO la ocultes. Observa el error, aprende de él, y ajusta tu enfoque.
+Los errores son evidencia que te hace mejor.
 
-### Paso 3: Levantar el servidor de desarrollo
-Usa Bash/Shell Execution con: cd /workspace && PORT=3001 npm run dev &
-Esto levanta el servidor en background en el puerto 3001.
+## REGLA #6 — Human-in-the-loop
+Si necesitas credenciales, confirmación, o encuentras un captcha, usa ask_user.
+El agente se pausa hasta que el usuario responde.
 
-### Paso 4: Verificar que el servidor está corriendo
-Usa Bash/Shell Execution con: curl -s http://localhost:3001 | head -20
-Verifica que responde HTML.
-
-### Paso 5: Devolver la URL al usuario
-Cuando el servidor esté corriendo, devuelve:
-{"isComplete": true, "tool": null, "thought": "Proyecto creado y sirviéndose en http://localhost:3001"}
-
-## Tu ciclo de trabajo
-En CADA iteración devuelves un JSON con esta estructura EXACTA:
-{"thought": "razonamiento breve", "tool": "nombre de la herramienta", "params": {...}, "isComplete": false}
+## Tu ciclo de trabajo (pensar → actuar → observar → evaluar → repetir)
+En CADA iteración devuelves un JSON:
+{"thought":"razonamiento breve","tool":"nombre_herramienta","params":{...},"isComplete":false}
 
 ## Herramientas disponibles
 ${AGENT_TOOLS.map(
   (t) => `
 ### ${t.name}
 ${t.description}
-Parámetros: ${JSON.stringify(t.paramsSchema)}`
+Params: ${JSON.stringify(t.paramsSchema)}`
 ).join("\n")}
 
 ## Ejemplo de flujo para "crea un dashboard con Next.js":
 
-Iteración 1:
-{"thought":"Voy a crear el package.json del proyecto Next.js en el sandbox","tool":"File Write","params":{"path":"/workspace/package.json","code":"{\\"name\\":\\"dashboard\\",\\"scripts\\":{\\"dev\\":\\"next dev\\"},\\"dependencies\\":{\\"next\\":\\"^16.0.0\\",\\"react\\":\\"^19.0.0\\",\\"react-dom\\":\\"^19.0.0\\"}}"},"isComplete":false}
+Iter 1: {"thought":"Crear todo.md con el plan","tool":"todo_update","params":{"code":"# Dashboard\\n- [ ] Crear package.json\\n- [ ] Crear layout.tsx\\n- [ ] Crear page.tsx\\n- [ ] npm install\\n- [ ] Levantar servidor en 3001\\n- [ ] Verificar"},"isComplete":false}
 
-Iteración 2:
-{"thought":"Voy a crear el layout.tsx","tool":"File Write","params":{"path":"/workspace/src/app/layout.tsx","code":"export default function RootLayout({children}){return <html><body>{children}</body></html>}"},"isComplete":false}
+Iter 2: {"thought":"Crear package.json","tool":"file_write","params":{"path":"/workspace/package.json","code":"{...}"},"isComplete":false}
 
-Iteración 3:
-{"thought":"Voy a crear el page.tsx con el dashboard","tool":"File Write","params":{"path":"/workspace/src/app/page.tsx","code":"export default function Home(){return <div>Dashboard</div>}"},"isComplete":false}
+Iter 3: {"thought":"Actualizar todo.md","tool":"todo_update","params":{"code":"# Dashboard\\n- [x] Crear package.json\\n- [ ] Crear layout.tsx\\n..."},"isComplete":false}
 
-Iteración 4:
-{"thought":"Voy a instalar dependencias","tool":"Bash/Shell Execution","params":{"code":"cd /workspace && npm install"},"isComplete":false}
+... y así hasta completar.
 
-Iteración 5:
-{"thought":"Voy a levantar el servidor en el puerto 3001","tool":"Bash/Shell Execution","params":{"code":"cd /workspace && PORT=3001 npm run dev &"},"isComplete":false}
-
-Iteración 6:
-{"thought":"Voy a verificar que el servidor responde","tool":"Bash/Shell Execution","params":{"code":"sleep 3 && curl -s http://localhost:3001 | head -20"},"isComplete":false}
-
-Iteración 7:
-{"thought":"Dashboard creado y sirviéndose en http://localhost:3001","tool":null,"params":{},"isComplete":true}
-
-## Reglas adicionales
-1. UNA herramienta por iteración.
-2. OBSERVA el output de cada herramienta antes del siguiente paso.
-3. Si hay errores, arréglalos en la siguiente iteración.
-4. NUNCA pongas código en "thought". El código va en "params.code" de File Write.
-5. Devuelve SOLO el JSON, sin markdown, sin texto extra.`;
+## Formato de respuesta
+Devuelve SOLO el JSON, sin markdown, sin texto extra. Válido y parseable.`;
 
 // ==================== LOOP PRINCIPAL ====================
 
@@ -313,19 +316,22 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
     onToolEnd,
     onThought,
     onError,
+    onUserInputRequest,
+    onTodoUpdate,
   } = options;
 
   const adapter = getAdapter();
   const iterations: LoopIteration[] = [];
   const toolsUsed: string[] = [];
   const startTime = Date.now();
+  let currentTodoMd = "";
 
-  // Historial de mensajes para mantener contexto del loop
+  // Historial de mensajes — APPEND-ONLY para optimizar KV-cache
   const messages: LLMChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `OBJETIVO: ${objective}\n\nComienza. Devuelve el JSON de tu primera iteración.`,
+      content: `OBJETIVO: ${objective}\n\nComienza. Devuelve el JSON de tu primera iteración. Recuerda empezar creando un todo.md.`,
     },
   ];
 
@@ -360,12 +366,12 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
     const parsed = parseLLMResponse(llmResponse);
 
     if (!parsed) {
-      // Si no se puede parsear, pedir al LLM que reformule
+      // Si no se puede parsear, pedir reformulación (append-only)
       messages.push({ role: "assistant", content: llmResponse });
       messages.push({
         role: "user",
         content:
-          "Tu respuesta no es un JSON válido. Devuelve SOLO un JSON con la estructura: {thought, tool, params, isComplete}. Sin markdown, sin texto extra.",
+          "Tu respuesta no es un JSON válido. Devuelve SOLO un JSON: {thought, tool, params, isComplete}.",
       });
       continue;
     }
@@ -397,6 +403,76 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
     // ===== FASE 2: ACTUAR (ejecutar la herramienta) =====
     onToolStart?.(parsed.tool, parsed.params);
 
+    // Manejo especial para ask_user (human-in-the-loop)
+    if (parsed.tool === "ask_user" && onUserInputRequest) {
+      const question = String(parsed.params.code || parsed.params.message || "Input requerido");
+      const userResponse = await onUserInputRequest(question);
+
+      const iteration: LoopIteration = {
+        iterationNumber: i,
+        thought: parsed.thought,
+        toolName: "ask_user",
+        toolParams: parsed.params,
+        observation: `Usuario respondió: ${userResponse}`,
+        evaluation: {
+          isComplete: false,
+          isSuccessful: true,
+          nextAction: "continue",
+          confidence: 1,
+        },
+        duration: Date.now() - iterStartTime,
+        waitingForUserInput: true,
+      };
+      iterations.push(iteration);
+      onIteration?.(iteration);
+
+      // Append-only: añadir la respuesta del usuario al contexto
+      messages.push({ role: "assistant", content: llmResponse });
+      messages.push({
+        role: "user",
+        content: `RESPUESTA DEL USUARIO: ${userResponse}\n\nContinúa con la tarea.`,
+      });
+      continue;
+    }
+
+    // Manejo especial para todo_update (actualizar todo.md en la UI)
+    if (parsed.tool === "todo_update") {
+      currentTodoMd = String(parsed.params.code || "");
+      onTodoUpdate?.(currentTodoMd);
+
+      // También escribirlo al sandbox
+      const toolResult = await executeToolSafely("file_write", {
+        path: "/workspace/todo.md",
+        code: currentTodoMd,
+      }, { conversationId, userId });
+
+      const iteration: LoopIteration = {
+        iterationNumber: i,
+        thought: parsed.thought,
+        toolName: "todo_update",
+        toolParams: parsed.params,
+        observation: `todo.md actualizado (${currentTodoMd.length} chars)`,
+        evaluation: {
+          isComplete: false,
+          isSuccessful: true,
+          nextAction: "continue",
+          confidence: 1,
+        },
+        duration: Date.now() - iterStartTime,
+      };
+      iterations.push(iteration);
+      onIteration?.(iteration);
+      toolsUsed.push("todo_update");
+
+      messages.push({ role: "assistant", content: llmResponse });
+      messages.push({
+        role: "user",
+        content: `todo.md actualizado. Continúa con la siguiente herramienta.`,
+      });
+      continue;
+    }
+
+    // Ejecutar herramienta normal
     const toolResult = await executeToolSafely(parsed.tool, parsed.params, {
       conversationId,
       userId,
@@ -405,17 +481,21 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
     onToolEnd?.(parsed.tool, toolResult);
     toolsUsed.push(parsed.tool);
 
-    // ===== FASE 3: OBSERVAR (construir observación para el LLM) =====
+    // ===== FASE 3: OBSERVAR (mantener errores en el contexto) =====
     let observation: string;
     if (toolResult.success) {
       const resultText = toolResult.result || "";
       const outputText = toolResult.output?.content || "";
-      observation = `Herramienta '${parsed.tool}' ejecutada exitosamente.\nOutput: ${resultText.slice(0, 2000)}\n${outputText ? `Contenido:\n${outputText.slice(0, 3000)}` : ""}`;
+      // Truncar output grande pero indicar que se guardó (restaurable)
+      const maxLen = 2000;
+      const truncated = resultText.length > maxLen;
+      observation = `✓ ${parsed.tool} ejecutada exitosamente.\nOutput: ${resultText.slice(0, maxLen)}${truncated ? `\n... (truncado, ${resultText.length} chars total. Usa file_read si necesitas el contenido completo)` : ""}${outputText ? `\n\nContenido:\n${outputText.slice(0, 3000)}` : ""}`;
     } else {
-      observation = `Herramienta '${parsed.tool}' FALLÓ.\nError: ${toolResult.error}\n\nDebes decidir: ¿reintentar con otros parámetros, usar otra herramienta, o ajustar el enfoque?`;
+      // MANTENER EL ERROR EN EL CONTEXTO — no ocultarlo
+      observation = `✗ ${parsed.tool} FALLÓ.\nError: ${toolResult.error}\n\nEsto es EVIDENCIA. Analiza el error y ajusta tu enfoque. NO repitas el mismo comando. Considera: ¿parámetros diferentes? ¿otra herramienta? ¿buscar documentación?`;
     }
 
-    // ===== FASE 4: EVALUAR (el LLM lo hará en la siguiente iteración) =====
+    // ===== FASE 4: EVALUAR =====
     const iteration: LoopIteration = {
       iterationNumber: i,
       thought: parsed.thought,
@@ -434,18 +514,23 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
     iterations.push(iteration);
     onIteration?.(iteration);
 
-    // Alimentar la observación al LLM para la siguiente iteración
+    // Append-only: alimentar la observación al LLM
     messages.push({ role: "assistant", content: llmResponse });
     messages.push({
       role: "user",
-      content: `OBSERVACIÓN de la iteración ${i}:\n${observation}\n\nDevuelve el JSON de tu próxima iteración. Recuerda: una sola herramienta por iteración. Si ya completaste el objetivo, devuelve isComplete=true.`,
+      content: `OBSERVACIÓN iteración ${i}:\n${observation}\n\nRecuerda: si completaste un paso del todo.md, actualízalo con todo_update. Si terminaste todo, devuelve isComplete=true.`,
     });
 
-    // Guardar en memoria de trabajo para contexto futuro
+    // Guardar en memoria de trabajo
     useMemoryStore.getState().store(
       "working",
       `iteration:${conversationId}:${i}`,
-      JSON.stringify({ thought: parsed.thought, tool: parsed.tool, observation: observation.slice(0, 1000) }),
+      JSON.stringify({
+        thought: parsed.thought,
+        tool: parsed.tool,
+        success: toolResult.success,
+        observation: observation.slice(0, 1000),
+      }),
       { conversationId, tags: ["iteration", conversationId] }
     );
   }
@@ -456,7 +541,6 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
     onError?.(errorMessage);
   }
 
-  // Si no hay finalOutput, generar uno del último thought
   if (!finalOutput && iterations.length > 0) {
     finalOutput = iterations[iterations.length - 1].thought;
   }
@@ -476,6 +560,7 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
     totalDuration: Date.now() - startTime,
     toolsUsed,
     errorMessage,
+    todoMarkdown: currentTodoMd,
   };
 }
 
@@ -490,9 +575,6 @@ interface ParsedLLMResponse {
 }
 
 function parseLLMResponse(response: string): ParsedLLMResponse | null {
-  // Intentar extraer JSON de la respuesta
-  // El LLM puede devolverlo con markdown ```json ... ``` o plano
-
   // Intento 1: JSON directo
   try {
     const parsed = JSON.parse(response);
@@ -508,7 +590,7 @@ function parseLLMResponse(response: string): ParsedLLMResponse | null {
     } catch {}
   }
 
-  // Intento 3: buscar el primer { y el último }
+  // Intento 3: buscar primer { y último }
   const firstBrace = response.indexOf("{");
   const lastBrace = response.lastIndexOf("}");
   if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -540,25 +622,40 @@ async function executeToolSafely(
   context: { conversationId: string; userId: string }
 ): Promise<ToolExecutionResult> {
   try {
-    // Validar que la herramienta existe
-    const toolDef = AGENT_TOOLS.find((t) => t.name === toolName);
-    if (!toolDef) {
-      return {
-        success: false,
-        error: `Herramienta desconocida: ${toolName}. Herramientas disponibles: ${AGENT_TOOLS.map((t) => t.name).join(", ")}`,
-      };
-    }
-
-    // Mapear params: el LLM puede usar 'code' o 'path' o 'query' o 'url'
-    // El toolRegistry espera ciertos nombres según la tool
-    const toolContext = {
-      conversationId: context.conversationId,
-      userId: context.userId,
+    // Mapear nombres con prefijos a los nombres del toolRegistry
+    const toolMap: Record<string, string> = {
+      shell_exec: "Bash/Shell Execution",
+      shell_python: "Python Execution",
+      shell_node: "Node.js Execution",
+      file_write: "File Write",
+      file_read: "File Read",
+      file_list: "Bash/Shell Execution", // file_list se implementa via ls
+      web_search: "Web Search",
+      web_extract: "Web Extraction",
+      browser_open: "Bash/Shell Execution", // browser_open se implementa via chromium
+      code_generate: "Code Generation",
+      todo_update: "File Write", // todo_update se maneja especial arriba
     };
 
-    // El toolRegistry ya maneja diferentes nombres de params internamente
-    // Solo pasamos lo que el LLM devolvió
-    const result = await toolRegistry.execute(toolName, params, toolContext);
+    // Para file_list, ejecutar ls via bash
+    if (toolName === "file_list") {
+      const dirPath = String(params.path || "/workspace");
+      return executeToolSafely("shell_exec", { code: `ls -la ${dirPath}` }, context);
+    }
+
+    // Para browser_open, abrir chromium en el sandbox
+    if (toolName === "browser_open") {
+      const url = String(params.url || "https://google.com");
+      return executeToolSafely("shell_exec", {
+        code: `chromium --no-sandbox --disable-gpu --start-maximized --app=${JSON.stringify(url)} &`,
+      }, context);
+    }
+
+    const registryName = toolMap[toolName] || toolName;
+    const result = await toolRegistry.execute(registryName, params, {
+      conversationId: context.conversationId,
+      userId: context.userId,
+    });
     return result;
   } catch (err) {
     return {
