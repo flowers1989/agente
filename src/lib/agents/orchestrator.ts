@@ -45,6 +45,13 @@ export interface OrchestratorCallbacks {
   onMetricsUpdate?: (metrics: MonitorMetrics, anomalies: Anomaly[]) => void;
   onComplete?: (result: OrchestratorResult) => void;
   onError?: (error: string) => void;
+  // ===== EVENTOS ATÓMICOS DEL LOOP (estilo Manus) =====
+  onThought?: (thought: string) => void;
+  onToolStart?: (toolName: string, params: Record<string, unknown>) => void;
+  onToolEnd?: (toolName: string, result: ToolExecutionResult) => void;
+  onTodoUpdate?: (todoMarkdown: string) => void;
+  onUserInputRequest?: (prompt: string) => Promise<string>;
+  onIteration?: (iteration: LoopIteration) => void;
 }
 
 export interface OrchestratorResult {
@@ -183,6 +190,7 @@ export class AgentOrchestrator {
         maxIterations: mode === "quality" ? 50 : 30,
         mode,
         onIteration: (iteration: LoopIteration) => {
+          callbacks.onIteration?.(iteration);
           // Convertir cada iteración del loop en un "step" visible para la UI
           if (iteration.toolName) {
             const step: ExecutionStep = {
@@ -218,37 +226,33 @@ export class AgentOrchestrator {
           }
         },
         onThought: (thought: string) => {
+          callbacks.onThought?.(thought);
           const planStep = plan.steps[0];
           if (planStep) {
             callbacks.onStepProgress?.(planStep.id, thought.slice(0, 300));
           }
         },
         onToolStart: (toolName: string, params: Record<string, unknown>) => {
-          console.log(`[Orchestrator] Tool start: ${toolName}`, params);
+          callbacks.onToolStart?.(toolName, params);
         },
         onToolEnd: (toolName: string, result: ToolExecutionResult) => {
-          console.log(`[Orchestrator] Tool end: ${toolName} → ${result.success ? "success" : "fail"}`);
+          callbacks.onToolEnd?.(toolName, result);
         },
         onError: (error: string) => {
           console.error(`[Orchestrator] Loop error: ${error}`);
+          callbacks.onError?.(error);
         },
-        // Human-in-the-loop: cuando el agente pide input, mostrarlo en el chat
+        // Human-in-the-loop: delegar al callback del orquestador
         onUserInputRequest: async (prompt: string): Promise<string> => {
-          // En producción esto debería abrir un modal en la UI y esperar respuesta.
-          // Por ahora, emitimos un evento y devolvemos un string vacío para que el agente continúe.
-          console.log(`[Orchestrator] User input requested: ${prompt}`);
-          // Emitir como progreso para que la UI lo muestre
-          const planStep = plan.steps[0];
-          if (planStep) {
-            callbacks.onStepProgress?.(planStep.id, `⏸️ Esperando input del usuario: ${prompt}`);
+          if (callbacks.onUserInputRequest) {
+            return callbacks.onUserInputRequest(prompt);
           }
-          // TODO: implementar modal real en la UI. Por ahora devolvemos vacío.
+          console.log(`[Orchestrator] User input requested (no handler): ${prompt}`);
           return "";
         },
-        // Todo.md: actualizar la UI cuando el agente actualice su lista de tareas
+        // Todo.md: actualizar la UI + guardar en memoria
         onTodoUpdate: (todoMarkdown: string) => {
-          console.log(`[Orchestrator] Todo updated (${todoMarkdown.length} chars)`);
-          // Guardar en working memory para que la UI pueda leerlo
+          callbacks.onTodoUpdate?.(todoMarkdown);
           useMemoryStore.getState().store("working", `todo:${conversationId}`, todoMarkdown, {
             conversationId,
             tags: ["todo", "progress", conversationId],

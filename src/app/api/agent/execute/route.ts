@@ -255,6 +255,31 @@ export async function POST(request: Request) {
             onMetricsUpdate: (metrics, anomalies) => send("metrics", { metrics, anomalies }),
             onComplete: (orchestratorResult) => send("complete", { result: orchestratorResult, conversationId }),
             onError: (error) => send("error", { error, conversationId }),
+            // ===== EVENTOS ATÓMICOS DEL LOOP (estilo Manus) =====
+            // Cada evento es independiente, no atado a pasos del plan estático.
+            // El frontend puede mostrar progreso granular en vez de "Trabajando..."
+            onThought: (thought: string) => send("thought", { conversationId, thought, timestamp: Date.now() }),
+            onToolStart: (toolName: string, params: Record<string, unknown>) =>
+              send("tool_start", { conversationId, tool: toolName, params, timestamp: Date.now() }),
+            onToolEnd: (toolName: string, toolResult: unknown) =>
+              send("tool_end", {
+                conversationId,
+                tool: toolName,
+                success: (toolResult as { success?: boolean })?.success ?? false,
+                result: (toolResult as { result?: string })?.result?.slice(0, 500),
+                timestamp: Date.now(),
+              }),
+            onTodoUpdate: (todoMarkdown: string) =>
+              send("todo_update", { conversationId, todo: todoMarkdown, timestamp: Date.now() }),
+            onUserInputRequest: async (prompt: string): Promise<string> => {
+              // Emitir evento de pausa para que el frontend abra el modal
+              send("user_input_request", { conversationId, prompt, timestamp: Date.now() });
+              // En producción, esperar la respuesta del frontend vía otro endpoint.
+              // Por ahora devolvemos vacío para no bloquear.
+              return "";
+            },
+            onIteration: (iteration: unknown) =>
+              send("iteration", { conversationId, iteration, timestamp: Date.now() }),
           },
           userObjective,
           mode as AgentMode

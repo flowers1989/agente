@@ -212,3 +212,41 @@ model SandboxSession {
   @@index([status, expiresAt])
   @@index([lastActivityAt])
 }
+
+// ==================== PERSISTENCIA DEL AGENT LOOP ====================
+// Permite resumir una ejecución tras recarga de página o reconexión.
+// El estado del loop (iteraciones, mensajes, todo.md) se guarda en DB.
+// Si el usuario recarga, el frontend puede consultar el estado y continuar.
+model AgentExecution {
+  id             String   @id @default(cuid())
+  conversationId String   @unique
+  userId         String
+  objective      String
+  status         String   @default("running") // "running" | "completed" | "failed" | "paused"
+  currentIteration Int    @default(0)
+  maxIterations  Int      @default(50)
+  // Mensajes serializados (system + user + assistant + tool results)
+  // Append-only para optimizar KV-cache
+  messages       String   @default("[]")
+  // todo.md actual
+  todoMarkdown   String?
+  // Output final cuando termina
+  finalOutput    String?
+  // Métricas
+  totalDuration  Int      @default(0)
+  tokensUsed     Int      @default(0)
+  cost           Float    @default(0)
+  // Tools usadas (JSON array)
+  toolsUsed      String   @default("[]")
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  completedAt    DateTime?
+  // Para HITL: si está pausado esperando input del usuario
+  pausedForInput Boolean  @default(false)
+  pausePrompt    String?
+
+  @@index([userId])
+  @@index([status])
+  @@index([conversationId])
+}
