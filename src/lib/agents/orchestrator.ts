@@ -109,12 +109,10 @@ export class AgentOrchestrator {
   ): Promise<OrchestratorResult> {
     // Propagar el modo a todos los agentes antes de iniciar la ejecución
     this.setMode(mode);
-    // El objetivo real del usuario se usa para detectar categoría y generar queries.
-    // `objective` puede estar enriquecido con contexto previo de la conversación.
     const userObjective = originalObjective || objective;
 
     try {
-      // Guardar objetivo original en working memory para que los agentes generen queries específicos
+      // Guardar objetivo en working memory
       useMemoryStore.getState().store(
         "working",
         `objective:${conversationId}`,
@@ -122,24 +120,20 @@ export class AgentOrchestrator {
         { conversationId, tags: ["objective", conversationId] }
       );
 
-      // ========== FASE 1: ANÁLISIS (Analizador) ==========
-      // Modelo (economy): deepseek-v4-flash | (quality): qwen3.7-plus
+      // ========== ARQUITECTURA SIMPLIFICADA — 1 AGENTE, 1 LOOP ==========
+      // Eliminamos las fases separadas de Analizador, Planificador, Verificador,
+      // Optimizer, Reporter, Monitor (teatro de orquestación).
+      // El AgentLoop real ya hace todo internamente: pensar → actuar → observar → evaluar.
+      // Esto replica la arquitectura de Manus IA: 1 agente + tools en un VM iterando.
+
+      const category = detectCategory(userObjective) as TaskCategory;
+
+      // Análisis y plan mínimos (para compatibilidad con la UI que los muestra)
       const analysis = await this.analyzer.analyze(objective, conversationId);
       callbacks.onAnalysisComplete?.(analysis);
 
-      // ========== FASE 2: PLANIFICACIÓN (Planificador) ==========
-      // Modelo (economy): deepseek-v4-flash | (quality): qwen3.7-plus
-      // Usar userObjective para detectar la categoría real de la petición actual,
-      // no el contextPrompt enriquecido con mensajes previos.
-      const category = detectCategory(userObjective) as TaskCategory;
-      // Pasar el objetivo limpio al planificador para que detecte la categoría real
-      // y no se deje confundir por el contextPrompt con texto pegado.
       const plan = await this.planner.createPlan(analysis, userObjective, conversationId);
       callbacks.onPlanCreated?.(plan, category);
-
-      // Inicializar el bucle de atención (todo.md dinámico)
-      this.todoManager = createTodoManager();
-      this.todoManager.initialize(conversationId, userObjective, plan);
 
       // Crear objeto Execution
       const execution: Execution = {
@@ -157,8 +151,12 @@ export class AgentOrchestrator {
         errors: [],
       };
 
-      // Resetear uso acumulado del adaptador para esta ejecución
+      // Resetear uso acumulado del adaptador
       this.adapter.resetUsage();
+
+      // Inicializar el bucle de atención (todo.md dinámico)
+      this.todoManager = createTodoManager();
+      this.todoManager.initialize(conversationId, userObjective, plan);
 
       // ========== INICIAR MONITOREO (Monitor) ==========
       // Modelo (economy/quality): mimo-v2.5 - monitorea en background
@@ -288,7 +286,6 @@ export class AgentOrchestrator {
 
       // Finalizar el bucle de atención
       const todoFinal = this.todoManager.finalize(execution.status !== "failed");
-      const todoProgress = this.todoManager.getProgress();
       if (todoFinal) {
         useMemoryStore.getState().store(
           "working",
@@ -298,21 +295,32 @@ export class AgentOrchestrator {
         );
       }
 
-      // ========== FASE 5: OPTIMIZACIÓN (Optimizador) ==========
+      // ========== POST-PROCESAMIENTO MÍNIMO ==========
+      // Eliminamos Optimizer, Reporter, Monitor separados (teatro).
+      // El loop ya generó el output final — lo usamos directamente como reporte.
+
       const optimizations: OptimizationResult = {
         suggestions: [],
         savings: { timeReduction: "0s", costReduction: "$0.00" },
       };
       callbacks.onOptimizationSuggestions?.(optimizations);
 
-      // ========== FASE 6: REPORTE (Reportero) ==========
-      const report = await this.reporter.generateReport(execution, conversationId, category);
+      // El reporte es el finalOutput del loop (no llamamos a Reporter)
+      const report: MessageOutput = {
+        type: "text",
+        content: loopResult.finalOutput || `Tarea completada en ${loopResult.iterations.length} iteraciones.`,
+        title: "Resultado del agente",
+      };
       callbacks.onReportGenerated?.(report);
 
-      // ========== FASE 7: MONITOREO FINAL (Monitor) ==========
-      const monitorReport = this.monitor.generateFinalReport(execution);
+      const monitorReport = {
+        totalAnomalies: 0,
+        criticalAnomalies: 0,
+        warnings: 0,
+        recommendations: [],
+      };
 
-      // ========== APRENDER DE LA CONVERSACIÓN ==========
+      // Aprender de la conversación
       const learnedPatterns = [
         `${category}: ${loopResult.toolsUsed.join(" → ")}`,
         `${loopResult.iterations.length} iteraciones en ${Math.round(loopResult.totalDuration / 1000)}s`,

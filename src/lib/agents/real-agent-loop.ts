@@ -487,12 +487,38 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
 
     // ===== CHECK: ¿terminó? =====
     if (parsed.isComplete || !parsed.tool) {
+      // ===== VERIFICACIÓN REAL antes de aceptar isComplete =====
+      // Manus verifica con curl/console antes de declarar éxito.
+      // Si el agente dice isComplete pero mencionó un puerto (ej: 3001),
+      // verificamos que el servidor realmente responda.
+      const portMentioned = parsed.thought.match(/:(\d{4,5})/);
+      if (portMentioned) {
+        const port = parseInt(portMentioned[1], 10);
+        if (port >= 3001 && port <= 9999) {
+          // Verificar con curl que el servidor responde
+          const verifyResult = await executeToolSafely("shell_exec", {
+            code: `curl -s -o /dev/null -w "%{http_code}" http://localhost:${port} --max-time 5 || echo "FAIL"`,
+          }, { conversationId, userId });
+
+          const httpCode = verifyResult.result?.trim() || "";
+          if (!verifyResult.success || httpCode === "FAIL" || httpCode === "000") {
+            // El servidor no responde — NO aceptar isComplete
+            messages.push({ role: "assistant", content: llmResponse });
+            messages.push({
+              role: "user",
+              content: `❌ VERIFICACIÓN FALLÓ: El servidor en puerto ${port} no responde (HTTP ${httpCode}). NO puedes declarar isComplete=true. Arranca el servidor con: cd /workspace && PORT=${port} npm run dev & y luego verifica con curl.`,
+            });
+            continue;
+          }
+        }
+      }
+
       const iteration: LoopIteration = {
         iterationNumber: i,
         thought: parsed.thought,
         toolName: null,
         toolParams: {},
-        observation: "",
+        observation: portMentioned ? `Verificación exitosa: servidor responde` : "",
         evaluation: {
           isComplete: true,
           isSuccessful: true,
@@ -622,11 +648,27 @@ export async function executeAgentLoop(options: AgentLoopOptions): Promise<Agent
     onIteration?.(iteration);
 
     // Append-only: alimentar la observación al LLM
+    // Si el tool devolvió un screenshot (image), enviarlo como image_url
+    // para que el LLM pueda "ver" el resultado (visión, estilo Manus IA).
     messages.push({ role: "assistant", content: llmResponse });
-    messages.push({
-      role: "user",
-      content: `OBSERVACIÓN iteración ${i}:\n${observation}\n\nRecuerda: si completaste un paso del todo.md, actualízalo con todo_update. Si terminaste todo, devuelve isComplete=true.`,
-    });
+
+    const screenshotContent = toolResult.output?.type === "image" ? toolResult.output.content : null;
+    if (screenshotContent) {
+      // Mensaje multimodal: texto + imagen
+      messages.push({
+        role: "user",
+        content: [
+          { type: "text", text: `OBSERVACIÓN iteración ${i}:\n${observation}\n\n[SCREENSHOT del sandbox incluido arriba — analízalo para decidir el siguiente paso]\n\nRecuerda: si completaste un paso del todo.md, actualízalo con todo_update. Si terminaste todo, devuelve isComplete=true.` },
+          { type: "image_url", image_url: { url: screenshotContent } },
+        ],
+      });
+    } else {
+      // Mensaje de texto plano (sin imagen)
+      messages.push({
+        role: "user",
+        content: `OBSERVACIÓN iteración ${i}:\n${observation}\n\nRecuerda: si completaste un paso del todo.md, actualízalo con todo_update. Si terminaste todo, devuelve isComplete=true.`,
+      });
+    }
 
     // Guardar en memoria de trabajo
     useMemoryStore.getState().store(

@@ -9,9 +9,19 @@ import { sanitizeLLMOutput } from "../utils";
 // Ahora las llamadas reales pasan por el proxy backend (/api/chat/completions)
 // para no exponer la API key en el cliente.
 
+// Soporte multimodal: el content puede ser string (texto) o array de
+// { type: "text", text } | { type: "image_url", image_url: { url } }
+// para enviar screenshots al LLM (visión, estilo Manus IA).
+export type ChatMessageContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    >;
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: ChatMessageContent;
 }
 
 export interface ChatParams {
@@ -228,9 +238,11 @@ export class OpenCodeGoAdapter {
         ? 400 + Math.random() * 600
         : 500 + Math.random() * 800;
 
-    const rawContent = generateSimulatedResponse(systemMsg?.content || "", userMsg?.content || "", model);
+    const systemText = typeof systemMsg?.content === "string" ? systemMsg.content : "";
+    const userText = typeof userMsg?.content === "string" ? userMsg.content : JSON.stringify(userMsg?.content || "");
+    const rawContent = generateSimulatedResponse(systemText, userText, model);
     const content = sanitizeLLMOutput(rawContent);
-    const tokensUsed = Math.floor(content.length / 4) + Math.floor((userMsg?.content.length || 0) / 4);
+    const tokensUsed = Math.floor(content.length / 4) + Math.floor(userText.length / 4);
     const cost = (tokensUsed * (pricing.input + pricing.output)) / 2 / 1_000_000;
     this.addUsage(tokensUsed, cost, model);
 

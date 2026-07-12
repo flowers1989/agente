@@ -238,16 +238,20 @@ export class SandboxManager {
       PidsLimit: 200, // anti fork-bomb (más alto por Xvfb+VNC+Chromium)
       CpuPeriod: 100000,
       CpuQuota: cpus * 100000,
-      // rootfs read-only — el agente solo puede escribir en tmpfs
+      // rootfs read-only — el agente solo puede escribir en tmpfs y volúmenes
       ReadonlyRootfs: false, // NEEDED for Xvfb + openbox + Chromium GUI
-      // tmpfs para /tmp y /workspace (efímero, en RAM)
+      // tmpfs para /tmp y /run (efímero, en RAM)
+      // /workspace ahora es un VOLUMEN PERSISTENTE (no tmpfs) — sobrevive reinicios
       Tmpfs: {
         "/tmp": "size=512m,mode=1777",
-        "/workspace": "size=1g,mode=0755,uid=1000,gid=1000",
         "/home/agent/.cache": "size=128m,mode=0700,uid=1000,gid=1000",
         "/run": "size=64m,mode=0755",
         "/tmp/.X11-unix": "size=32m,mode=1777",
       },
+      // Volumen Docker persistente para /workspace — los proyectos sobreviven
+      // entre sesiones. El usuario puede volver mañana y ver su dashboard.
+      // Manus mantiene el workspace hasta 14 días para usuarios pagos.
+      Binds: [`mexa-sandbox-workspace-${userId}-${taskId}:/workspace`],
       // Sin capabilities
       CapDrop: ["ALL"],
       CapAdd: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"],
