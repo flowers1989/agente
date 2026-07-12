@@ -3,18 +3,62 @@
 
 import { z } from "zod";
 
+// Content puede ser string (texto) o array multimodal (texto + imágenes)
+const ContentSchema = z.union([
+  z.string(),
+  z.array(
+    z.object({
+      type: z.enum(["text", "image_url"]),
+      text: z.string().optional(),
+      image_url: z.object({ url: z.string() }).optional(),
+    })
+  ),
+]);
+
 export const ChatCompletionSchema = z.object({
   model: z.string().min(1),
   messages: z.array(
     z.object({
       role: z.enum(["system", "user", "assistant"]),
-      content: z.string(),
+      content: ContentSchema,
+      // Soporte para function-calling nativo (tool_calls en assistant messages)
+      tool_calls: z.array(
+        z.object({
+          id: z.string(),
+          type: z.literal("function"),
+          function: z.object({
+            name: z.string(),
+            arguments: z.string(),
+          }),
+        })
+      ).optional(),
+      // tool_role messages (respuestas de tools)
+      tool_call_id: z.string().optional(),
     })
   ).min(1),
   temperature: z.number().min(0).max(2).optional().default(0.7),
   max_tokens: z.number().int().positive().optional().default(4096),
   top_p: z.number().min(0).max(1).optional().default(1),
   stream: z.boolean().optional().default(false),
+  // Function-calling nativo
+  tools: z.array(
+    z.object({
+      type: z.literal("function"),
+      function: z.object({
+        name: z.string(),
+        description: z.string(),
+        parameters: z.record(z.string(), z.unknown()),
+      }),
+    })
+  ).optional(),
+  tool_choice: z.union([
+    z.literal("auto"),
+    z.literal("none"),
+    z.object({
+      type: z.literal("function"),
+      function: z.object({ name: z.string() }),
+    }),
+  ]).optional(),
 });
 
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionSchema>;

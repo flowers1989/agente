@@ -29,6 +29,16 @@ export interface ChatParams {
   maxTokens?: number;
   topP?: number;
   model?: string;
+  // Function-calling nativo (estilo OpenAI tool_calls)
+  tools?: Array<{
+    type: "function";
+    function: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+    };
+  }>;
+  tool_choice?: "auto" | "none" | { type: "function"; function: { name: string } };
 }
 
 export interface ChatResponse {
@@ -154,6 +164,9 @@ export class OpenCodeGoAdapter {
           temperature: params?.temperature ?? 0.7,
           max_tokens: params?.maxTokens ?? 4096,
           top_p: params?.topP ?? 1.0,
+          // Pasar tools y tool_choice si vienen (function-calling nativo)
+          ...(params?.tools ? { tools: params.tools } : {}),
+          ...(params?.tool_choice ? { tool_choice: params.tool_choice } : {}),
         }),
       });
 
@@ -163,7 +176,16 @@ export class OpenCodeGoAdapter {
       }
 
       const data = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
+        choices?: {
+          message?: {
+            content?: string;
+            tool_calls?: Array<{
+              id: string;
+              type: "function";
+              function: { name: string; arguments: string };
+            }>;
+          };
+        }[];
         model?: string;
         usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
       };

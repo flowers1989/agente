@@ -53,6 +53,9 @@ export async function POST(request: Request) {
         messages: payload.messages,
         ...modelParams,
         stream: payload.stream,
+        // Pasar tools y tool_choice si vienen (function-calling nativo)
+        ...(payload.tools ? { tools: payload.tools } : {}),
+        ...(payload.tool_choice ? { tool_choice: payload.tool_choice } : {}),
       }),
     });
 

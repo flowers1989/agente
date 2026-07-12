@@ -3,6 +3,7 @@
 import { ConversationSidebar, SidebarReopenButton } from "@/components/agente/conversation-sidebar";
 import { ChatPanel } from "@/components/agente/chat-panel";
 import { SandboxPanel } from "@/components/agente/sandbox-panel";
+import { UserInputModal } from "@/components/agente/user-input-modal";
 import { useExecution } from "@/hooks/use-execution";
 import { useBrowserAutoStart } from "@/hooks/use-browser-auto-start";
 import { useSandboxAutoStart } from "@/hooks/use-sandbox-auto-start";
@@ -37,6 +38,8 @@ export function AppPage() {
         </div>
         <SandboxPanel />
       </div>
+      {/* Modal de human-in-the-loop: aparece cuando el agente pide input */}
+      <UserInputModal />
     </div>
   );
 }
